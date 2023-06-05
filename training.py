@@ -8,12 +8,7 @@ import matplotlib.pyplot as plt
 
 from IPython.display import HTML, clear_output
 
-try:
-  import brax
-except ImportError:
-  !pip install git+https://github.com/google/brax.git@main
-  clear_output()
-  import brax
+import brax
 
 import flax
 from brax import envs
