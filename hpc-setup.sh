@@ -5,8 +5,8 @@ cat << EOOF > script.batch
 #SBATCH -w gpu-380-15
 #SBATCH --output=testing.out
 #SBATCH --error=testing.err
-cd /tmp
-export HOME=/tmp
+cd /nfs/nhome/live/aoomerjee
+export HOME=/nfs/nhome/live/aoomerjee
 curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh"
 bash Mambaforge-$(uname)-$(uname -m).sh -b
 ./mambaforge/bin/mamba init
