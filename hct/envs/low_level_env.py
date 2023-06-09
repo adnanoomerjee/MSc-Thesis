@@ -1,18 +1,22 @@
 # pylint:disable=g-multiple-import
 """Creates an environment for the lowest level of a hierarchical framework"""
 
-from brax import base
-from brax import math
+from hct.envs.observer import Observer
+
+from brax import base, math
 from brax.envs.base import Env, PipelineEnv, State
 from brax.io import mjcf
+from brax.kinematics import world_to_joint
+
 from etils import epath
+
 import jax
 from jax import numpy as jp
 
 
+
+
 class LowLevelEnv(PipelineEnv):
-
-
 
   # pyformat: disable
   """
@@ -145,7 +149,8 @@ class LowLevelEnv(PipelineEnv):
       **kwargs,
   ):
     
-    path = epath.resource_path('brax') / f'envs/assets/{env_name}.xml'
+    path = epath.resource_path('hct') / f'envs/assets/{env_name}.xml'
+    print(path)
     sys = mjcf.load(path)
 
     n_frames = 5
@@ -165,7 +170,7 @@ class LowLevelEnv(PipelineEnv):
     kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
 
     super().__init__(sys=sys, backend=backend, **kwargs)
-
+    self.observer = Observer(sys=sys)
     self._ctrl_cost_weight = ctrl_cost_weight
     self._use_contact_forces = use_contact_forces
     self._contact_cost_weight = contact_cost_weight
@@ -186,9 +191,11 @@ class LowLevelEnv(PipelineEnv):
     rng, rng1, rng2 = jax.random.split(rng, 3)
 
     low, hi = -self._reset_noise_scale, self._reset_noise_scale
+    
     q = self.sys.init_q + jax.random.uniform(
         rng1, (self.sys.q_size(),), minval=low, maxval=hi
     )
+    
     qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
     pipeline_state = self.pipeline_init(q, qd)
@@ -249,11 +256,13 @@ class LowLevelEnv(PipelineEnv):
     )
 
   def _get_obs(self, pipeline_state: base.State) -> jp.ndarray:
-    """Observe ant body position and velocities."""
-    qpos = pipeline_state.q
-    qvel = pipeline_state.qd
+    """Return observation input tensor"""
+    return self.observer.get_obs(pipeline_state)
+  
+  def _sample_goal(self, rng: jp.ndarray):
+    return None
 
-    if self._exclude_current_positions_from_observation:
-      qpos = pipeline_state.q[2:]
+test = LowLevelEnv()
 
-    return jp.concatenate([qpos] + [qvel])
+
+
