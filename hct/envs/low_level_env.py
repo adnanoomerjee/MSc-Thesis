@@ -1,7 +1,10 @@
 # pylint:disable=g-multiple-import
 """Creates an environment for the lowest level of a hierarchical framework"""
+import sys
+sys.path.insert(0, "/nfs/nhome/live/aoomerjee/MSc-Thesis/")
 
 from hct.envs.observer import Observer
+from hct.envs.goal import GoalConstructor, Goal
 
 from brax import base, math
 from brax.envs.base import Env, PipelineEnv, State
@@ -13,6 +16,7 @@ from etils import epath
 import jax
 from jax import numpy as jp
 
+import multipledispatch
 
 
 
@@ -135,22 +139,19 @@ class LowLevelEnv(PipelineEnv):
 
   def __init__(
       self,
+      configs: dict = {},
       env_name: str = 'ant',
-      ctrl_cost_weight=0.5,
-      use_contact_forces=False,
-      contact_cost_weight=5e-4,
-      healthy_reward=1.0,
+      unhealthy_cost=1.0,
       terminate_when_unhealthy=True,
+      terminate_when_goal_reached=True,
       healthy_z_range=(0.2, 1.0),
-      contact_force_range=(-1.0, 1.0),
+      goal_distance_epsilon = 0.01,
       reset_noise_scale=0.1,
-      exclude_current_positions_from_observation=True,
       backend='generalized',
       **kwargs,
   ):
     
     path = epath.resource_path('hct') / f'envs/assets/{env_name}.xml'
-    print(path)
     sys = mjcf.load(path)
 
     n_frames = 5
@@ -170,99 +171,110 @@ class LowLevelEnv(PipelineEnv):
     kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
 
     super().__init__(sys=sys, backend=backend, **kwargs)
-    self.observer = Observer(sys=sys)
-    self._ctrl_cost_weight = ctrl_cost_weight
-    self._use_contact_forces = use_contact_forces
-    self._contact_cost_weight = contact_cost_weight
-    self._healthy_reward = healthy_reward
+    self.observer = Observer(sys=sys, configs = configs)
+    self.goalconstructor = GoalConstructor(sys=sys, configs = configs)
+    self._unhealthy_cost = unhealthy_cost
     self._terminate_when_unhealthy = terminate_when_unhealthy
+    self._terminate_when_goal_reached = terminate_when_goal_reached
+    self._goal_distance_epsilon = goal_distance_epsilon
     self._healthy_z_range = healthy_z_range
-    self._contact_force_range = contact_force_range
     self._reset_noise_scale = reset_noise_scale
-    self._exclude_current_positions_from_observation = (
-        exclude_current_positions_from_observation
-    )
 
-    if self._use_contact_forces:
-      raise NotImplementedError('use_contact_forces not implemented.')
 
   def reset(self, rng: jp.ndarray) -> State:
     """Resets the environment to an initial state."""
-    rng, rng1, rng2 = jax.random.split(rng, 3)
+    rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
 
-    low, hi = -self._reset_noise_scale, self._reset_noise_scale
-    
-    q = self.sys.init_q + jax.random.uniform(
-        rng1, (self.sys.q_size(),), minval=low, maxval=hi
-    )
-    
-    qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+    low, hi = self.observer.goal_q_limit[:,0], self.observer.goal_q_limit[:,1]
+
+    q = self.sys.init_q 
+    qd = 0 * hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
     pipeline_state = self.pipeline_init(q, qd)
-    obs = self._get_obs(pipeline_state)
 
+    goal = self.goalconstructor.sample_goal(rng2, pipeline_state)
+    pipeline_state = self.pipeline_init(goal.q, qd)
+
+    # Sample and set goal
+    #goal = self.goalconstructor.sample_goal(rng3, pipeline_state)
+
+    # Get observation
+    obs = self._get_obs(pipeline_state, goal)
+    
+    # Set metrics
     reward, done, zero = jp.zeros(3)
     metrics = {
-        'reward_forward': zero,
-        'reward_survive': zero,
-        'reward_ctrl': zero,
-        'reward_contact': zero,
-        'x_position': zero,
-        'y_position': zero,
-        'distance_from_origin': zero,
-        'x_velocity': zero,
-        'y_velocity': zero,
-        'forward_reward': zero,
+        'intrinsic_reward': zero,
+        'unhealthy_cost': zero,
     }
-    return State(pipeline_state, obs, reward, done, metrics)
+    info = {'goal': goal}
+
+    return State(pipeline_state, obs, reward, done, metrics, info)
+
 
   def step(self, state: State, action: jp.ndarray) -> State:
     """Run one timestep of the environment's dynamics."""
-    pipeline_state0 = state.pipeline_state
-    pipeline_state = self.pipeline_step(pipeline_state0, action)
 
-    velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
-    forward_reward = velocity[0]
+    goal = state.info['goal']
 
+    # Take action
+    pipeline_state_1 = state.pipeline_state
+    pipeline_state = self.pipeline_step(pipeline_state_1, action)
+
+    # Check if unhealthy
     min_z, max_z = self._healthy_z_range
-    is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=0.0, y=1.0)
-    is_healthy = jp.where(
-        pipeline_state.x.pos[0, 2] > max_z, x=0.0, y=is_healthy
+    is_unhealthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=1.0, y=0.0)
+    is_unhealthy = jp.where(
+        pipeline_state.x.pos[0, 2] > max_z, x=1.0, y=is_unhealthy
     )
-    if self._terminate_when_unhealthy:
-      healthy_reward = self._healthy_reward
-    else:
-      healthy_reward = self._healthy_reward * is_healthy
-    ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
-    contact_cost = 0.0
 
-    obs = self._get_obs(pipeline_state)
-    reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
-    done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
+    # Compute goal distances
+    goal_distance_1 = self._goal_distance(pipeline_state_1)
+    goal_distance = self._goal_distance(pipeline_state)
+
+    # Compute rewards: R = ||s-g|| - ||s'-g||
+    intrinsic_reward = goal_distance_1 - goal_distance
+    unhealthy_cost = self._unhealthy_cost * is_unhealthy
+
+    # Check if goal reached
+    goal_reached = jp.where(
+        goal_distance < self._goal_distance_epsilon, x=1.0, y=0.0
+    )
+
+    # Compute state
+    obs = self._get_obs(pipeline_state, goal)
+    reward = intrinsic_reward - unhealthy_cost
+
+    if (bool(is_unhealthy) or bool(goal_reached))\
+        and self._terminate_when_unhealthy:
+      done = 1.0 
+    else:
+      done = 0.0
+
     state.metrics.update(
-        reward_forward=forward_reward,
-        reward_survive=healthy_reward,
-        reward_ctrl=-ctrl_cost,
-        reward_contact=-contact_cost,
-        x_position=pipeline_state.x.pos[0, 0],
-        y_position=pipeline_state.x.pos[0, 1],
-        distance_from_origin=math.safe_norm(pipeline_state.x.pos[0]),
-        x_velocity=velocity[0],
-        y_velocity=velocity[1],
-        forward_reward=forward_reward,
+        intrinsic_reward=intrinsic_reward,
+        unhealthy_cost=unhealthy_cost
     )
     return state.replace(
         pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
     )
 
-  def _get_obs(self, pipeline_state: base.State) -> jp.ndarray:
+  def _get_obs(self, pipeline_state: base.State, goal: Goal) -> jp.ndarray:
     """Return observation input tensor"""
-    return self.observer.get_obs(pipeline_state)
-  
-  def _sample_goal(self, rng: jp.ndarray):
-    return None
+    return self.observer.get_obs(pipeline_state, goal)
 
-test = LowLevelEnv()
+  def _goal_distance(self, obs: jp.ndarray):
+    if self.observer.goal_nodes:
+      g_obs = obs[-self.observer.num_links:]
+    else:
+      obs[:,self.obs_width:]
 
-
+    if self.observer.q_goals:
+      s_minus_g = self.observer\
+          .vmap(in_axes = (None, 0, 0))\
+            .dist_q_goals(g_obs, self.observer.optimal_goal_obs)
+      dist = math.safe_norm(s_minus_g, axis=(0,1))
+    else:
+      dist = math.safe_norm(g_obs - self.observer.optimal_goal_obs, axis=(0,1))
+    return dist
 
