@@ -150,7 +150,7 @@ class Ant(PipelineEnv):
       contact_cost_weight=5e-4,
       healthy_reward=1.0,
       terminate_when_unhealthy=True,
-      healthy_z_range=(0.1, 1.0),
+      healthy_z_range=(0.26, 8.0),
       contact_force_range=(-1.0, 1.0),
       reset_noise_scale=0.1,
       exclude_current_positions_from_observation=True,
@@ -200,7 +200,6 @@ class Ant(PipelineEnv):
     low, hi = -self._reset_noise_scale, self._reset_noise_scale
     q = self.sys.init_q 
 
-    q = q.at[-1].set(0.5235988)
     qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
 
     pipeline_state = self.pipeline_init(q, qd)
@@ -227,7 +226,7 @@ class Ant(PipelineEnv):
     pipeline_state = self.pipeline_step(pipeline_state0, action)
 
     velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
-    forward_reward = velocity[0]
+    forward_reward = jp.abs(velocity[2])
 
     min_z, max_z = self._healthy_z_range
     is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=0.0, y=1.0)
@@ -242,7 +241,7 @@ class Ant(PipelineEnv):
     contact_cost = 0.0
 
     obs = self._get_obs(pipeline_state)
-    reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
+    reward = forward_reward #+ healthy_reward - ctrl_cost - contact_cost
     done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
     state.metrics.update(
         reward_forward=forward_reward,

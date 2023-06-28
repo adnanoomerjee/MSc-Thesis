@@ -6,23 +6,29 @@ from jaxlib.xla_extension import ArrayImpl
 
 from flax import struct
 
-from typing import Literal, Optional, Any
+from typing import Any, Literal, Optional, Tuple
 
 
 class EnvTools(base.Base):
+   """
+   TODO: account for humanoid (end effector ID)
+   """
    
    def __init__(
-         self, 
+         self,
          sys: base.System,
+         env_name: Literal['ant', 'humanoid'] = 'ant', 
+         joint_obs: bool = False,
          goal_obs: Literal['concatenate', 'node'] = 'concatenate',
          q_goals: bool = True,
          qd_goals: Literal[None, 'root', 'full'] = None, 
-         goal_z_cond: jp.array = jp.array([0.0, 0.9]),
-         goal_polar_cond: float = jp.pi/12,
-         goal_root_pos_range: jp.ndarray = jp.array([[-3,3], [-3,3], [-0.25,0.45]]),
+         goal_x_range: Tuple[base.Transform, base.Transform] = None,
+         goal_xd_range: Tuple[base.Motion, base.Motion] = None,
+         goal_root_pos_range: jp.ndarray = jp.array([[-3,3], [-3,3], [-0.25, 0.6]]),
          goal_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi], [-jp.pi, jp.pi]]),
          goal_qd_limit: Optional[jp.ndarray] = None
    ):
+      # Agent attributes
       self.sys = sys
       self.dof_limits = jp.array(self.sys.dof.limit).T
       self.dof = self.dof_limits.shape[0]
@@ -31,8 +37,10 @@ class EnvTools(base.Base):
       self.q_size = sys.q_size()
       self.qd_size = sys.q_size()
       self.num_links = sys.num_links()
-      self.obs_width = 17
+      self.joint_obs = joint_obs
+      self.obs_width = 15 if joint_obs else 13
 
+      # Goal attributes
       self.goal_nodes = True if goal_obs == 'node' else False
       self.q_goals = q_goals
       self.qd_goals = False if qd_goals is None else True
@@ -82,8 +90,13 @@ class EnvTools(base.Base):
       self.goal_qd_limit = goal_qd_limit if self.qd_goals else jp.zeros((self.dof,2))
       self.goal_limit = jp.concatenate([self.goal_q_limit, self.goal_qd_limit])
 
-      self.goal_z_cond = goal_z_cond
-      self.goal_polar_cond = goal_polar_cond
+      # Goal sampling parameters
+      if env_name == 'ant':
+         self.end_effector_idx = [2,4,6,8]
+         self.goal_z_cond = jp.array([0.078, 1.3])
+         self.goal_polar_cond = jp.pi/12
+         self.goal_contact_cond = [-0.003, 0.01]
+
 
    def __mul__(self, a, b: Any) -> Any:
       return jax.tree_map(lambda x, y: x * y, a, b)

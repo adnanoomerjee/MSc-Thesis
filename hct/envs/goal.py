@@ -1,9 +1,14 @@
 
 from hct.envs.env_tools import EnvTools
-from hct.envs.math import egocentric_to_world, spherical_to_quaternion, quaternion_to_spherical
+from hct.envs.math import (
+  egocentric_to_world, 
+  spherical_to_quaternion, 
+  quaternion_to_spherical,
+  random_ordered_subset)
 
 from brax import scan, base, math
 from brax.kinematics import forward
+from brax.geometry import contact
 
 import jax
 from jax import numpy as jp
@@ -64,6 +69,14 @@ class GoalConstructor(EnvTools):
   def sample_goal(self, rng: jp.ndarray, state: base.State):
     """
     Samples normalised goal and outputs a goal state 
+    
+    Goal is restricted to ensure a valid state, and acheive a range of positions
+    that are expected to be achieved by the optimal policy. Restictions on
+      Z position of all links
+      Root rotation
+      Number of feet in contact with ground:
+        Randomly sample an ordered subset of end effector IDs
+        Ensure that these end effectors are in contact with ground
 
     Args:
       rng: jp.ndarray
@@ -71,6 +84,8 @@ class GoalConstructor(EnvTools):
     Returns:
       goal: Goal
     """
+    rng, rng1 = jax.random.split(rng)
+    foot_contact_idx = random_ordered_subset(rng1, self.end_effector_idx)
     def sample(carry):
       rng, _ = carry
       rng, rng1 = jax.random.split(rng)
@@ -83,10 +98,15 @@ class GoalConstructor(EnvTools):
       goal = self.create_goal(g, state)
       return rng, goal
     def reject(carry):
-      _, goal = carry
+      rng, goal = carry
+      cpos_foot_z = contact(self.sys, goal.x).pos[foot_contact_idx, 2]
       z = goal.x.pos[:,2]
       polar = goal.bpg[6]
-      cond = jp.any(z < self.goal_z_cond[0]) | jp.any(z > self.goal_z_cond[1]) | (polar > self.goal_polar_cond)
+      cond = jp.any(z < self.goal_z_cond[0]) | \
+        jp.any(z > self.goal_z_cond[1]) | \
+        (polar > self.goal_polar_cond) | \
+        jp.any(cpos_foot_z > self.goal_contact_cond[1]) | \
+        jp.any(cpos_foot_z < self.goal_contact_cond[0])
       return cond
     init_g = jax.random.uniform(
         rng, 
@@ -119,8 +139,8 @@ class GoalConstructor(EnvTools):
     q = self.bpgq_to_q(bpg[:self.dof], state)
     qd = bpg[-self.dof:] * self.goal_qd_mask
     x, xd = forward(self.sys, q, qd)
-    xd = x.__mul__(self.goal_x_mask)
-    xd = xd.__mul__(self.goal_xd_mask)
+    x = self.__mul__(x, self.goal_x_mask)
+    xd = self.__mul__(xd, self.goal_xd_mask)
     return Goal(g, bpg, q, qd, x, xd)
     
   def backproj(self, g: jp.ndarray):
@@ -150,6 +170,15 @@ class GoalConstructor(EnvTools):
     def falsefunc():
       return jp.zeros(self.q_size)
     return jax.lax.cond(self.q_goals, truefunc, falsefunc)
+
+
+
+
+
+
+
+
+    
   '''
   def q_to_bpgq(self, q: jp.ndarray, state: base.State):
     def truefunc():

@@ -2,8 +2,9 @@
 Defines Observer and Observation classes
 """
 from hct.envs.goal import GoalConstructor, Goal
-from hct.envs.math import world_to_egocentric
+from hct.envs.math import world_to_egocentric, dist_quat
 from hct.envs.env_tools import EnvTools, zero_if_non_hinge, concatenate_attrs, pad
+from brax.math import safe_norm
 
 from brax import base
 from brax import envs
@@ -34,22 +35,29 @@ class Observer(EnvTools):
    ):
       super().__init__(**configs, sys=sys)
    
-   def _get_obs_sx(self, state: Union[base.State, Goal]):
+   def _get_obs_x(self, state: Union[base.State, Goal]):
       """Returns world root position (masking XY position) and egocentric limb position"""
       root = state.x.take(0)
       mask = base.Transform(jp.array([0.0, 0.0, 1.0]), jp.array([1.0, 1.0, 1.0, 1.0]))
       root = self.__mul__(root, mask)
       return world_to_egocentric(state.x).index_set(0, root)
    
-   def _get_obs_gx(self, state: Union[base.State, Goal]):
+   def _get_obs_gx(self, goal: Goal, state: base.State):
       """Returns world root position and egocentric limb position"""
-      root = state.x.take(0)
-      return world_to_egocentric(state.x).index_set(0, root)
+      _sroot = state.x.take(0)
+      _sx = world_to_egocentric(state.x).index_set(0, _sroot)
+      groot = goal.x.take(0)
+      gx = world_to_egocentric(goal.x).index_set(0, groot)
+      return gx.vmap(in_axes = (0, 0)).to_local(_sx)
    
    def _get_obs_xd(self, state: Union[base.State, Goal]):
       """Returns world root velocity and egocentric limb velocity"""
       root_xd = state.xd.take(0)
       return state.xd.__sub__(root_xd)
+   
+   def _get_obs_gxd(self, goal: Goal, sxd: base.State):
+      """Returns world root velocity and egocentric limb velocity"""
+      return self._get_obs_xd(goal).__sub__(sxd) * goal.xd_mask
 
    def get_joint_angles(self, state: Union[base.State, Goal]):
       '''Returns normalised joint angles of each joint'''
@@ -77,41 +85,16 @@ class Observer(EnvTools):
       Returns:
          obs: (num_links, 15 + goal_size) array containing goal observations:
       """      
-      sx = concatenate_attrs(self._get_obs_sx(state))
-      sja = self.get_joint_angles(state)
+      sx = concatenate_attrs(self._get_obs_x(state))
       sxd = concatenate_attrs(self._get_obs_xd(state))
-      sjv = self.get_joint_velocities(state)
-      sjr = self.normjr
-
-      def gx():
-         return self\
-            ._get_obs_gx(goal).vmap(in_axes = (0, 0))\
-               .to_local(self._get_obs_gx(state))
-      
-      def gja():
-         return self.get_joint_angles(goal) - sja
-      
-      def gxd():
-         return self._get_obs_xd(goal).__sub__(sxd)
-      
-      def gjv():
-         return self.get_joint_velocities(goal) - sjv
-      
-      if self.q_goals:
-         g_obs_q = concatenate_attrs(gx()), gja()
-      else:
-         g_obs_q = ()
-      
-      if self.root_qd_goals:
-         g_obs_qd = concatenate_attrs(gxd()*goal.xd_mask)
-      elif self.full_qd_goals:
-         g_obs_qd = concatenate_attrs(gxd()*goal.xd_mask), gjv()
-      else:
-         g_obs_qd = ()
-      
-      s_obs = jp.concatenate([sx, sja, sxd, sjv, sjr], axis = -1)
-      g_obs = jp.concatenate(g_obs_q + g_obs_qd, axis = -1)
-
+      sja = self.get_joint_angles(state) if self.joint_obs else None
+      sjv = self.get_joint_velocities(state) if self.joint_obs else None
+      gx = concatenate_attrs(self._get_obs_gx(goal, state)) if self.q_goals else jp.empty((self.num_links, 0))
+      gxd = concatenate_attrs(self._get_obs_gxd(goal, sxd)) if self.qd_goals else jp.empty((self.num_links, 0))
+      gja = self.get_joint_angles(goal) - sja if self.q_goals and self.joint_obs else jp.empty((self.num_links, 0))
+      gjv = self.get_joint_velocities(goal) - sjv if self.full_qd_goals and self.joint_obs else jp.empty((self.num_links, 0))
+      s_obs = jp.concatenate([sx, sxd, sja, sjv], axis = -1)
+      g_obs = jp.concatenate([gx, gxd, gja, gjv], axis = -1)
       if self.goal_nodes:
          g_obs = pad(g_obs, self.obs_width)
          s_obs = jp.concatenate([s_obs, jp.zeros((self.num_links,1))], axis = -1)
@@ -119,11 +102,23 @@ class Observer(EnvTools):
          obs = jp.concatenate([s_obs, g_obs], axis = 0)
       else:
          obs = jp.concatenate([s_obs, g_obs], axis=-1)
-
       return obs
+
+   def dist(self, state: base.State, goal: Goal):
+      """
+      Computes distance d(s,g) between state and goal in world frame, 
+      accounting for quaternion double cover.
+
+      dist(s,g) = ||s-g||
+      """
+      rpos = state.x.pos - goal.x.pos
+      rrot = dist_quat(state.x.rot, goal.x.rot)
+      rx = concatenate_attrs(base.Transform(rpos, rrot) * self.goal_x_mask)
+      rxd = concatenate_attrs(state.xd.__sub__(goal.xd) * self.goal_xd_mask)
+      s_minus_g = jp.concatenate([rx, rxd])
+      return safe_norm(s_minus_g)
+
    
-   def dist_q_goals(self, g_obs_node, optimal_g_obs_node):
-        return min(g_obs_node - optimal_g_obs_node, g_obs_node + optimal_g_obs_node)
 
    
    """
@@ -170,7 +165,7 @@ class Observation(EnvTools):
       Concatenates the observation attributes into a tensor for input
       into transformer model
 
-      Returns:
+      Returns:i
          2D tensor, each row corresponding to agent node with features.''' """
       return jp.concatenate([v for k, v in vars(self).items()], axis=-1)
    def _get_egocentric_position(self, state: base.State):

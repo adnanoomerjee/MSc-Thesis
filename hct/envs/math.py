@@ -54,7 +54,24 @@ def egocentric_to_world(t) -> Transform:
     """
     r = t.take(0)
     return r.vmap(in_axes=(None,0)).do(t)
+
+@jax.vmap
+def dist_quat(quat1, quat2):
+    """Accounts for double cover property of quaternions"""
+    v1 = quat1 - quat2
+    v2 = quat1 + quat2
+    innerprod1 = jp.dot(v1,v1)
+    innerprod2 = jp.dot(v2,v2)
+    return jax.lax.select(innerprod1<innerprod2, v1, v2)
+
+def random_ordered_subset(rng, idx: jp.ndarray):
+    rng, rng1, rng2 = jax.random.split(rng, 3)
+    n = jax.random.choice(rng2, jp.array(range(0, len(idx)+1)))
+    subset = jax.random.choice(rng1, idx, shape=(n,), replace = False)
+    return jp.sort(subset)
+
 '''
+
 
 def world_to_link(t, x) -> Transform:
     """Converts a transform in world frame to transform in link frame.

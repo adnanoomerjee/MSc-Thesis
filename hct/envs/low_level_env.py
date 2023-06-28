@@ -144,7 +144,7 @@ class LowLevelEnv(PipelineEnv):
       unhealthy_cost=1.0,
       terminate_when_unhealthy=True,
       terminate_when_goal_reached=True,
-      healthy_z_range=(0.2, 1.0),
+      healthy_z_range=(0.2, 2.0),
       goal_distance_epsilon = 0.01,
       reset_noise_scale=0.1,
       backend='generalized',
@@ -179,6 +179,10 @@ class LowLevelEnv(PipelineEnv):
     self._goal_distance_epsilon = goal_distance_epsilon
     self._healthy_z_range = healthy_z_range
     self._reset_noise_scale = reset_noise_scale
+    self.max_actions_per_node = max_actions_per_node
+    self.obs_mask = obs_mask
+    self.non_actuator_nodes = non_actuator_nodes
+    self.action_mask = action_mask
 
 
   def reset(self, rng: jp.ndarray) -> State:
@@ -187,16 +191,15 @@ class LowLevelEnv(PipelineEnv):
 
     low, hi = self.observer.goal_q_limit[:,0], self.observer.goal_q_limit[:,1]
 
-    q = self.sys.init_q 
-    qd = 0 * hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+    q = self.sys.init_q + jax.random.uniform(
+        rng1, (self.sys.q_size(),), minval=low, maxval=hi
+    )
 
+    qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
     pipeline_state = self.pipeline_init(q, qd)
 
-    goal = self.goalconstructor.sample_goal(rng2, pipeline_state)
-    pipeline_state = self.pipeline_init(goal.q, qd)
-
     # Sample and set goal
-    #goal = self.goalconstructor.sample_goal(rng3, pipeline_state)
+    goal = self.goalconstructor.sample_goal(rng3, pipeline_state)
 
     # Get observation
     obs = self._get_obs(pipeline_state, goal)
@@ -207,6 +210,7 @@ class LowLevelEnv(PipelineEnv):
         'intrinsic_reward': zero,
         'unhealthy_cost': zero,
     }
+
     info = {'goal': goal}
 
     return State(pipeline_state, obs, reward, done, metrics, info)
@@ -229,8 +233,8 @@ class LowLevelEnv(PipelineEnv):
     )
 
     # Compute goal distances
-    goal_distance_1 = self._goal_distance(pipeline_state_1)
-    goal_distance = self._goal_distance(pipeline_state)
+    goal_distance_1 = self.observer.dist(pipeline_state_1, goal)
+    goal_distance = self.observer.dist(pipeline_state, goal)
 
     # Compute rewards: R = ||s-g|| - ||s'-g||
     intrinsic_reward = goal_distance_1 - goal_distance
@@ -241,7 +245,7 @@ class LowLevelEnv(PipelineEnv):
         goal_distance < self._goal_distance_epsilon, x=1.0, y=0.0
     )
 
-    # Compute state
+    # Compute state observation
     obs = self._get_obs(pipeline_state, goal)
     reward = intrinsic_reward - unhealthy_cost
 
@@ -262,19 +266,4 @@ class LowLevelEnv(PipelineEnv):
   def _get_obs(self, pipeline_state: base.State, goal: Goal) -> jp.ndarray:
     """Return observation input tensor"""
     return self.observer.get_obs(pipeline_state, goal)
-
-  def _goal_distance(self, obs: jp.ndarray):
-    if self.observer.goal_nodes:
-      g_obs = obs[-self.observer.num_links:]
-    else:
-      obs[:,self.obs_width:]
-
-    if self.observer.q_goals:
-      s_minus_g = self.observer\
-          .vmap(in_axes = (None, 0, 0))\
-            .dist_q_goals(g_obs, self.observer.optimal_goal_obs)
-      dist = math.safe_norm(s_minus_g, axis=(0,1))
-    else:
-      dist = math.safe_norm(g_obs - self.observer.optimal_goal_obs, axis=(0,1))
-    return dist
 
