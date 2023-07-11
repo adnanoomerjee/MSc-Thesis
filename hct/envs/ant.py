@@ -308,7 +308,7 @@ class Ant(PipelineEnv):
   
 
   def move_limb(self, limb_id, actuator_force):
-    return jp.zeros(((self.action_size,),)).at[limb_id].set(actuator_force)
+    return jp.zeros((self.action_size,)).at[limb_id].set(actuator_force)
 
 
   def get_limb_x_dist(self, x0: base.Transform, x1: base.Transform, limb_id):
@@ -351,7 +351,8 @@ class Ant(PipelineEnv):
     lower_leg_dists['max_x_dist'] = self.get_limb_x_dist(x0, x1, 2)
 
     rollout = []
-    rollout_rel = []
+    rollout_rel_x = []
+    rollout_rel_xd = []
     rng = jax.random.PRNGKey(seed=1)
     
     for ranges in (upper_leg_dists, lower_leg_dists):
@@ -370,28 +371,27 @@ class Ant(PipelineEnv):
           rng, rng1 = jax.random.split(rng)
 
           state = jit_env_reset(rng=rng, limit_id=limit_id)
-          print(state)
 
           for _ in range(60):
 
             rollout.append(state.pipeline_state)
 
-            pipeline_state_rel = state.pipeline_state
-            pipeline_state_rel.x = world_to_relative(state.pipeline_state.x, self.sys)
-            pipeline_state_rel.xd = world_to_relative(state.pipeline_state.xd, self.sys)
-            rollout_rel.append(state.pipeline_state_rel)
+            pipeline_state_rel_x = world_to_relative(state.pipeline_state.x, self.sys)
+            pipeline_state_rel_xd = world_to_relative(state.pipeline_state.xd, self.sys)
+            rollout_rel_x.append(pipeline_state_rel_x)
+            rollout_rel_xd.append(pipeline_state_rel_xd)
 
-            xd_dist = self.get_limb_xd_dist(xd0, pipeline_state_rel.xd , limb_id)
+            xd_dist = self.get_limb_xd_dist(xd0, pipeline_state_rel_xd , limb_id)
             if xd_dist > ranges['max_xd_dist']:
               ranges['max_xd_dist'] = xd_dist
 
             act = jit_move_limb(limb_id=limb_id, actuator_force=actuator_force)
             state = jit_env_step(state, act)
 
-    rollout_rel_pos = jp.stack([state.x.pos for state in rollout_rel])
-    rollout_rel_rot = jp.stack([quaternion_to_spherical_vmap(state.x.rot) for state in rollout_rel])
-    rollout_rel_vel = jp.stack([state.xd.vel for state in rollout_rel])
-    rollout_rel_ang = jp.stack([state.xd.ang for state in rollout_rel])
+    rollout_rel_pos = jp.stack([x.pos for x in rollout_rel_x])
+    rollout_rel_rot = jp.stack([quaternion_to_spherical_vmap(x.rot) for x in rollout_rel_x])
+    rollout_rel_vel = jp.stack([xd.vel for xd in rollout_rel_xd])
+    rollout_rel_ang = jp.stack([xd.ang for xd in rollout_rel_xd])
 
     pos_ranges = jp.min(rollout_rel_pos, axis=0), jp.max(rollout_rel_pos, axis=0)
     rot_ranges = jp.min(rollout_rel_rot, axis=0), jp.max(rollout_rel_rot, axis=0)
