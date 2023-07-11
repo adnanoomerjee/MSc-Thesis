@@ -2,6 +2,7 @@ from brax.math import *
 from brax.base import Motion, State, System, Transform
 from brax.scan import link_types
 
+import jax
 import jax.numpy as jp
 from typing import Any, Optional
 
@@ -62,7 +63,8 @@ def quaternion_to_spherical(quat: jp.ndarray) -> jp.ndarray:
     angle = 2*safe_arccos(w) - jp.pi
     # convert cartesian axis-angle to spherical
     r = angle
-    theta = safe_arccos(v[2]) if r!=0.0 else 0.0
+    theta = safe_arccos(v[2])
+    theta = jax.lax.cond(r == 0, lambda _: theta*0, lambda _: theta)
     phi = jp.arctan2(v[1], v[0])
     return jp.array([r, theta, phi])
 
