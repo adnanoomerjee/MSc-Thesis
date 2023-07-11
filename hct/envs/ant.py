@@ -388,6 +388,8 @@ class Ant(PipelineEnv):
             act = jit_move_limb(limb_id=limb_id, actuator_force=actuator_force)
             state = jit_env_step(state, act)
 
+    print(rollout_rel_x[0])
+
     rollout_rel_pos = jp.stack([x.pos for x in rollout_rel_x])
     rollout_rel_rot = jp.stack([quaternion_to_spherical_vmap(x.rot) for x in rollout_rel_x])
     rollout_rel_vel = jp.stack([xd.vel for xd in rollout_rel_xd])
