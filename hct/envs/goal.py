@@ -1,12 +1,8 @@
 
 from hct.envs.env_tools import EnvTools
-from hct.envs.math import (
-  egocentric_to_world, 
-  spherical_to_quaternion, 
-  quaternion_to_spherical,
-  random_ordered_subset)
+from hct.envs.tools import __mul__, q_spherical_to_quaternion, world_to_relative, random_ordered_subset
 
-from brax import scan, base, math
+from brax import base, generalized
 from brax.kinematics import forward
 from brax.geometry import contact
 
@@ -15,30 +11,41 @@ from jax import numpy as jp
 
 from flax import struct
 
-from typing import Optional, Union, Literal
-
 
 @struct.dataclass
-class Goal(EnvTools):
+class Goal:
   """Target configuration for agent to acheive 
 
   Attributes:
-
-    g: (g_size) normalised goal features, mapped to [-1,1],
-      q goals egocentric (root) frame, qd goals world frame
-    bpg: unnormalised goal features
-    q: (q_size) generalised goal position, world frame
-    qd: (qd_size) generalised goal velocity, world frame
-    x: goal Transform world frame
-    xd: goal Motion world frame
+      x_world: position in world frame
+      x_rel: position in frame relative to parents
+      xd_world: velocity in world frame 
+      xd_rel: velocity in frame relative to parents
   """
-  g: jp.ndarray
-  bpg: jp.ndarray
-  q: jp.ndarray
-  qd: jp.ndarray
-  x: base.Transform
-  xd: base.Motion
+  x_world: base.Transform
+  x_rel: base.Transform
+  xd_world: base.Motion
+  xd_rel: base.Motion
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+'''
 class GoalConstructor(EnvTools):
 
   """
@@ -66,7 +73,7 @@ class GoalConstructor(EnvTools):
     
     super().__init__(**configs, sys=sys)
 
-  def sample_goal(self, rng: jp.ndarray, state: base.State):
+  def sample_goal(self, rng: jp.ndarray, state: generalized.base.State):
     """
     Samples normalised goal and outputs a goal state 
     
@@ -92,8 +99,8 @@ class GoalConstructor(EnvTools):
       g = jax.random.uniform(
           rng1, 
           shape=self.goal_size, 
-          minval=-1, 
-          maxval=1
+          minval=self.goal_limit[:, 0], 
+          maxval=self.goal_limit[:, 1]
         )
       goal = self.create_goal(g, state)
       return rng, goal
@@ -118,7 +125,7 @@ class GoalConstructor(EnvTools):
     goal = jax.lax.while_loop(reject, sample, init_val)[1]
     return goal
 
-  def create_goal(self, g: jp.ndarray, state: base.State) -> Goal:
+  def create_goal(self, g: jp.ndarray, state: base.State, sys: base.System) -> Goal:
     """
     Creates a goal state 
 
@@ -127,75 +134,38 @@ class GoalConstructor(EnvTools):
       state: environment state
 
     Returns:
-      Goal:
-        g: (goal_size,) normalised goal
-        bpg: (goal_size,) unnormalised goal
-        q: (q_size) generalised position, world frame
-        qd: (qd_size) generalised velocity, world frame
-        x: Transform world frame
-        xd: Motion world frame
+      Goal: goal state
     """
-    bpg = self.backproj(g)
-    q = self.bpgq_to_q(bpg[:self.dof], state)
-    qd = bpg[-self.dof:] * self.goal_qd_mask
-    x, xd = forward(self.sys, q, qd)
-    x = self.__mul__(x, self.goal_x_mask)
-    xd = self.__mul__(xd, self.goal_xd_mask)
-    return Goal(g, bpg, q, qd, x, xd)
-    
-  def backproj(self, g: jp.ndarray):
-    """Backprojects goal from normalised values to unnormalised values"""
-    bpg = self.\
-          vmap(in_axes=(None, 0, 0, 0, None, None))\
-            .unnormalize_to_range(
-              g,
-              self.goal_limit[:,0],
-              self.goal_limit[:,1],
-              -1,
-              1
-            )
-    return bpg
-  
-  def bpgq_to_q(self, bpgq: jp.ndarray, state: base.State):
-    def truefunc():
-      def scanfunc(link_type, feature):
-        """Converts backprojected q goal to q state"""
-        if link_type == 'f':
-          pos = feature[0:3] + state.x.pos[0] # root pos from state egocentric to world
-          rot = spherical_to_quaternion(feature[3:6])
-          return jp.concatenate([pos,rot])
-        else:
-          return feature
-      return self.scan_link_types(scanfunc, 'd', 'q', bpgq)
-    def falsefunc():
-      return jp.zeros(self.q_size)
-    return jax.lax.cond(self.q_goals, truefunc, falsefunc)
+    q = q_spherical_to_quaternion(g[:self.dof], state, sys)
+    qd = g[-self.dof:]
+    x_world, xd_world = forward(self.sys, q, qd)
+    x_world, xd_world = __mul__(x_world, self.goal_x_mask), __mul__(xd_world, self.goal_xd_mask)
+    x_rel, xd_rel = world_to_relative(x_world, sys), world_to_relative(xd_world, sys)
+    x_rel, xd_rel = __mul__(x_rel, self.goal_x_mask), __mul__(xd_rel, self.goal_xd_mask)
+    return Goal(x_world, x_rel, xd_world, xd_rel)
+
+'''
 
 
 
 
-
-
-
-
-    
-  '''
-  def q_to_bpgq(self, q: jp.ndarray, state: base.State):
-    def truefunc():
-      def scanfunc(link_type, feature):
-        """Converts backprojected q goal to q state"""
-        def ffunc(feature):
-          pos = feature[0:3] - state.x.pos[0] # root pos from world to state egocentric
-          rot = quaternion_to_spherical(feature[3:7])
-          return jp.concatenate([pos,rot])
-        def nonffunc(feature):
-          return feature
-        return jax.lax.cond(link_type != 'f', nonffunc, ffunc, feature)
-      return self.scan_link_types(scanfunc, 'q', 'd', q)
-    def falsefunc():
-      return jp.zeros(self.goal_size)
-    return jax.lax.cond(self.q_goals, truefunc, falsefunc)
-  '''
+'''
+def q_to_bpgq(self, q: jp.ndarray, state: base.State):
+  def truefunc():
+    def scanfunc(link_type, feature):
+      """Converts backprojected q goal to q state"""
+      def ffunc(feature):
+        pos = feature[0:3] - state.x.pos[0] # root pos from world to state egocentric
+        rot = quaternion_to_spherical(feature[3:7])
+        return jp.concatenate([pos,rot])
+      def nonffunc(feature):
+        return feature
+      return jax.lax.cond(link_type != 'f', nonffunc, ffunc, feature)
+    return self.scan_link_types(scanfunc, 'q', 'd', q)
+  def falsefunc():
+    return jp.zeros(self.goal_size)
+  return jax.lax.cond(self.q_goals, truefunc, falsefunc)
+'''
     
 
 

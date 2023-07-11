@@ -14,14 +14,21 @@
 
 # pylint:disable=g-multiple-import
 """Trains an ant to run in the +x direction."""
+#import sys
+#sys.path.insert(0, "/nfs/nhome/live/aoomerjee/MSc-Thesis/")
 
 from brax import base
 from brax import math
 from brax.envs.base import PipelineEnv, State
-from brax.io import mjcf
+from brax.kinematics import forward
+from brax.io import mjcf, html
 from etils import epath
 import jax
 from jax import numpy as jp
+
+from hct.envs.tools import world_to_relative, safe_norm, concatenate_attrs, dist_quat, quaternion_to_spherical
+
+from typing import Literal
 
 
 class Ant(PipelineEnv):
@@ -150,14 +157,14 @@ class Ant(PipelineEnv):
       contact_cost_weight=5e-4,
       healthy_reward=1.0,
       terminate_when_unhealthy=True,
-      healthy_z_range=(0.26, 8.0),
+      healthy_z_range=(0.2, 1.0),
       contact_force_range=(-1.0, 1.0),
       reset_noise_scale=0.1,
       exclude_current_positions_from_observation=True,
       backend='generalized',
       **kwargs,
   ):
-    path = epath.resource_path('hct') / 'envs/assets/ant.xml'
+    path = epath.resource_path('hct') / f'envs/assets/ant_original.xml'
     sys = mjcf.load(path)
 
     n_frames = 5
@@ -193,14 +200,13 @@ class Ant(PipelineEnv):
     if self._use_contact_forces:
       raise NotImplementedError('use_contact_forces not implemented.')
 
-  def reset(self, rng: jp.ndarray) -> State:
+  def reset(self, rng: jp.ndarray, limit_id: int) -> State:
     """Resets the environment to an initial state."""
     rng, rng1, rng2 = jax.random.split(rng, 3)
-
-    low, hi = -self._reset_noise_scale, self._reset_noise_scale
-    q = self.sys.init_q 
-
-    qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+    
+    joint_angles = jax.lax.select(limit_id==0, jp.array(self.sys.dof.limit[0]), jp.array(self.sys.dof.limit[1]))
+    q = jp.concatenate([jp.array([0,0,0,1,0,0,0]), joint_angles[6:]])
+    qd = jp.zeros((self.sys.qd_size(),))
 
     pipeline_state = self.pipeline_init(q, qd)
     obs = self._get_obs(pipeline_state)
@@ -226,7 +232,7 @@ class Ant(PipelineEnv):
     pipeline_state = self.pipeline_step(pipeline_state0, action)
 
     velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
-    forward_reward = jp.abs(velocity[2])
+    forward_reward = velocity[0]
 
     min_z, max_z = self._healthy_z_range
     is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=0.0, y=1.0)
@@ -241,7 +247,7 @@ class Ant(PipelineEnv):
     contact_cost = 0.0
 
     obs = self._get_obs(pipeline_state)
-    reward = forward_reward #+ healthy_reward - ctrl_cost - contact_cost
+    reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
     done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
     state.metrics.update(
         reward_forward=forward_reward,
@@ -268,3 +274,141 @@ class Ant(PipelineEnv):
       qpos = pipeline_state.q[2:]
 
     return jp.concatenate([qpos] + [qvel])
+  
+  def _limb_dist(
+      self, 
+      state1: base.State, 
+      state2: base.State, 
+      limb_id: int,  
+      frame: Literal['world', 'relative']):
+    """
+    Computes distance d(s,g) between state and goal in world frame, 
+    accounting for quaternion double cover.
+
+    dist(s,g) = ||s-g||
+    """
+    if frame == 'world':
+        state1_x = state1.x.take(limb_id)
+        state1_xd = state1.xd.take(limb_id) 
+        state2_x = state2.x.take(limb_id)
+        state2_xd = state2.xd.take(limb_id)
+    else:
+        state1_x = world_to_relative(state1.x.take(limb_id), self.sys)
+        state1_xd = world_to_relative(state1.xd.take(limb_id), self.sys)
+        state2_x = world_to_relative(state2.x.take(limb_id), self.sys)
+        state2_xd = world_to_relative(state2.xd.take(limb_id), self.sys)
+
+    rpos = state1_x.pos - state2_x.pos
+    rrot = dist_quat(state1_x.rot, state2_x.rot)
+    rx = concatenate_attrs(base.Transform(rpos, rrot))
+    rxd = concatenate_attrs(state1_xd.__sub__(state2_xd))
+    x_dist = safe_norm(rx) 
+    xd_dist = safe_norm(rxd)
+    return x_dist, xd_dist
+  
+
+  def move_limb(self, limb_id, actuator_force):
+    return jp.zeros(((self.action_size,),)).at[limb_id].set(actuator_force)
+
+
+  def get_limb_x_dist(self, x0: base.Transform, x1: base.Transform, limb_id):
+    x0 = x0.take(limb_id)
+    x1 = x1.take(limb_id)
+    rpos = x0.pos - x1.pos
+    rrot = dist_quat(x0.rot, x1.rot)
+    rx = concatenate_attrs(base.Transform(rpos, rrot))
+    x_dist = safe_norm(rx) 
+    return x_dist
+
+  def get_limb_xd_dist(self, xd0: base.Transform, xd1: base.Transform, limb_id):
+    xd0 = xd0.take(limb_id)
+    xd1 = xd1.take(limb_id)
+    rxd = concatenate_attrs(xd0.__sub__(xd1))   
+    return safe_norm(rxd)
+
+  def get_limb_ranges(self):
+    
+    quaternion_to_spherical_vmap = jax.vmap(quaternion_to_spherical, in_axes=0)
+    jit_env_reset = jax.jit(self.reset)
+    jit_env_step = jax.jit(self.step)
+    jit_move_limb = jax.jit(self.move_limb)
+
+    q0 = jp.concatenate([jp.array([0,0,0,1,0,0,0]), jp.array(self.sys.dof.limit[0])[6:]])
+    q1 = jp.concatenate([jp.array([0,0,0,1,0,0,0]), jp.array(self.sys.dof.limit[1])[6:]])
+
+    qd0 = jp.zeros((self.sys.qd_size(),))   
+
+    x0 = world_to_relative(forward(self.sys, q0, qd0)[0], self.sys)
+    x1= world_to_relative(forward(self.sys, q1, qd0)[0], self.sys)
+
+    xd0 = base.Motion.zero(shape = (self.sys.num_links(),))
+    xd0 = world_to_relative(xd0, self.sys)
+
+    upper_leg_dists = {}
+    lower_leg_dists = {}
+
+    upper_leg_dists['max_x_dist'] = self.get_limb_x_dist(x0, x1, 1)
+    lower_leg_dists['max_x_dist'] = self.get_limb_x_dist(x0, x1, 2)
+
+    rollout = []
+    rollout_rel = []
+    rng = jax.random.PRNGKey(seed=1)
+    
+    for ranges in (upper_leg_dists, lower_leg_dists):
+
+      if ranges == upper_leg_dists:
+        limb_id = 1
+      else:
+        limb_id = 2
+
+      ranges['max_xd_dist'] = 0
+
+      for limit_id in (0,1):
+
+        for actuator_force in (-1,1,-1,1):
+
+          rng, rng1 = jax.random.split(rng)
+
+          state = jit_env_reset(rng=rng, limit_id=limit_id)
+          print(state)
+
+          for _ in range(60):
+
+            rollout.append(state.pipeline_state)
+
+            pipeline_state_rel = state.pipeline_state
+            pipeline_state_rel.x = world_to_relative(state.pipeline_state.x, self.sys)
+            pipeline_state_rel.xd = world_to_relative(state.pipeline_state.xd, self.sys)
+            rollout_rel.append(state.pipeline_state_rel)
+
+            xd_dist = self.get_limb_xd_dist(xd0, pipeline_state_rel.xd , limb_id)
+            if xd_dist > ranges['max_xd_dist']:
+              ranges['max_xd_dist'] = xd_dist
+
+            act = jit_move_limb(limb_id=limb_id, actuator_force=actuator_force)
+            state = jit_env_step(state, act)
+
+    rollout_rel_pos = jp.stack([state.x.pos for state in rollout_rel])
+    rollout_rel_rot = jp.stack([quaternion_to_spherical_vmap(state.x.rot) for state in rollout_rel])
+    rollout_rel_vel = jp.stack([state.xd.vel for state in rollout_rel])
+    rollout_rel_ang = jp.stack([state.xd.ang for state in rollout_rel])
+
+    pos_ranges = jp.min(rollout_rel_pos, axis=0), jp.max(rollout_rel_pos, axis=0)
+    rot_ranges = jp.min(rollout_rel_rot, axis=0), jp.max(rollout_rel_rot, axis=0)
+    vel_ranges = jp.min(rollout_rel_vel, axis=0), jp.max(rollout_rel_vel, axis=0)
+    ang_ranges = jp.min(rollout_rel_ang, axis=0), jp.max(rollout_rel_ang, axis=0)
+
+    return_dict = {
+      'upper_leg_dists': upper_leg_dists, 
+      'lower_leg_dists': lower_leg_dists,
+      'pos_ranges': pos_ranges, 
+      'rot_ranges': rot_ranges, 
+      'vel_ranges': vel_ranges, 
+      'ang_ranges': ang_ranges, 
+      'rollout': rollout
+    }
+    return upper_leg_dists, lower_leg_dists, pos_ranges, rot_ranges, vel_ranges, ang_ranges, rollout
+
+
+
+

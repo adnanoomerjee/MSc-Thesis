@@ -9,7 +9,7 @@ import jax.numpy as jp
 
 from brax.training import types
 from brax.training.networks import ActivationFn, FeedForwardNetwork
-from attention import SelfAttention
+from hct.training.transformer.attention import SelfAttention
 
 
 class PositionalEncoding(linen.Module):

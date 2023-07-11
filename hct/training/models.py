@@ -53,7 +53,7 @@ class MLP(linen.Module):
 
 
 class Transformer(linen.Module):
-  """Low-Level Transformer Network"""
+  """Transformer Network"""
   network_type: Literal['policy', 'value']
   policy_params_size: int
   num_layers: int = 3

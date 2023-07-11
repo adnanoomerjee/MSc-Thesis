@@ -1,8 +1,8 @@
 import functools
 from typing import Any, Optional, Protocol, Sequence, Tuple
 
-from hct.training.models import MLP, SNMLP, Transformer
-from hct.training.types import PolicyValueNetworks
+from hct.training.models import MLP, Transformer
+from hct.training.types import PolicyValueFactory
 
 from brax.training import distribution
 from brax.training import types
@@ -22,7 +22,7 @@ def make_mlp_policy_value(
     value_hidden_layer_sizes: Sequence[int] = (256,) * 5,
     activation: ActivationFn = linen.swish,
     obs_mask: Optional[jp.ndarray] = None
-  ) -> PolicyValueNetworks:
+  ) -> Tuple[FeedForwardNetwork, FeedForwardNetwork]:
   """Creates MLP policy and value modules"""
   policy_module = MLP(
       layer_sizes=list(policy_hidden_layer_sizes) + [policy_params_size],
@@ -72,7 +72,7 @@ def make_transformer_policy_value(
   dropout_rate: float = 0.1,
   transformer_norm: bool = True,
   condition_decoder: bool = True
-) -> PolicyValueNetworks: 
+) -> Tuple[FeedForwardNetwork, FeedForwardNetwork]: 
   """Creates Transformer policy/value networks
   Args:
     obs_size: size of an observation (last dim of input)

@@ -3,7 +3,7 @@
 import sys
 sys.path.insert(0, "/nfs/nhome/live/aoomerjee/MSc-Thesis/")
 
-from hct.envs.observer import Observer
+from hct.envs.old.observer import Observer
 from hct.envs.goal import GoalConstructor, Goal
 from hct.training.network_factory import make_ppo_networks, make_inference_fn
 
@@ -227,7 +227,7 @@ class LowLevelEnv(PipelineEnv):
     return State(pipeline_state, obs, reward, done, metrics, info)
 
 
-  def step(self, state: State, goal: jp.ndarray) -> State:
+  def step(self, state: State, low_level_goal: jp.ndarray) -> State:
     """Run one timestep of the environment's dynamics."""
 
     rng = state.info['rng']
@@ -264,6 +264,7 @@ class LowLevelEnv(PipelineEnv):
 
     # Compute state observation
     obs = self._get_obs(pipeline_state, goal)
+    low_level_obs = self._get_low_level_obs(pipeline_state, low_level_goal)
     reward = intrinsic_reward - unhealthy_cost
 
     if (bool(is_unhealthy) or bool(goal_reached))\

@@ -21,7 +21,7 @@ import functools
 import time
 from typing import Callable, Optional, Tuple, Union
 from hct.training import network_factory as ppo_networks
-from hct.training.policy_value_factory import make_transformer_networks, make_mlp_networks
+from hct.training.policy_value_factory import make_transformer_policy_value, make_mlp_policy_value
 from hct.training.types import PolicyValueFactory
 
 
@@ -98,7 +98,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           normalize_advantage: bool = True,
           eval_env: Optional[envs.Env] = None,
           policy_params_fn: Callable[..., None] = lambda *args: None,
-          policy_value_factory: PolicyValueFactory = make_transformer_networks,
+          policy_value_factory: PolicyValueFactory = make_transformer_policy_value,
           **policy_value_factory_kwargs):
   
 
@@ -293,7 +293,6 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
         env_steps=training_state.env_steps + env_step_per_training_step)
     return (new_training_state, state, new_key), metrics
   
-  @jax.jit
   def training_epoch(training_state: TrainingState, state: envs.State,
                      key: PRNGKey) -> Tuple[TrainingState, envs.State, Metrics]:
     (training_state, state, _), loss_metrics = jax.lax.scan(

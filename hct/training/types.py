@@ -1,5 +1,5 @@
 
-from typing import Any, Protocol, Tuple
+from typing import Any, Protocol, Tuple, TypeVar
 
 from brax.training import types
 from brax.training.networks import FeedForwardNetwork
@@ -7,7 +7,7 @@ from brax.training.networks import FeedForwardNetwork
 import jax
 import jax.numpy as jp
 
-PolicyValueNetworks = Tuple[FeedForwardNetwork, FeedForwardNetwork]
+PolicyValueNetworks = TypeVar('PolicyValueNetworks')
 
 class PolicyValueFactory(Protocol[PolicyValueNetworks]):
   def __call__(

@@ -15,13 +15,13 @@
 """PPO networks."""
 
 import functools
-from typing import Any, Callable, Optional, Protocol, Sequence, Tuple, Typevar
+from typing import Optional, Tuple
 
 from hct.training.types import PolicyValueFactory
 
 from brax.training import distribution
 from brax.training import types
-from brax.training.networks import ActivationFn, FeedForwardNetwork
+from brax.training.networks import FeedForwardNetwork
 from brax.training.types import PRNGKey
 
 
