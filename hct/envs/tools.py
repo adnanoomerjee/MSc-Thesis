@@ -64,7 +64,7 @@ def quaternion_to_spherical(quat: jp.ndarray) -> jp.ndarray:
     r = angle
     theta = safe_arccos(v[2])
     phi = jp.arctan2(v[1], v[0])
-    return jp.array(r, theta, phi)
+    return jp.array([r, theta, phi])
 
 def q_spherical_to_quaternion(g: jp.ndarray, state: State, sys: System):
     def scanfunc(link_type, feature):
