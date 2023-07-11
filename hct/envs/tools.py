@@ -58,12 +58,12 @@ def quaternion_to_spherical(quat: jp.ndarray) -> jp.ndarray:
     w = quat[0]
     xyz = quat[1:]
     # Convert quaternion to cartesian axis-angle
-    v = normalize(xyz)
+    v, _ = normalize(xyz)
     angle = 2*safe_arccos(w) - jp.pi
     # convert cartesian axis-angle to spherical
     r = angle
-    theta = safe_arccos(v[3])
-    phi = jp.arctan2(v[2], v[1])
+    theta = safe_arccos(v[2])
+    phi = jp.arctan2(v[1], v[0])
     return jp.array(r, theta, phi)
 
 def q_spherical_to_quaternion(g: jp.ndarray, state: State, sys: System):
