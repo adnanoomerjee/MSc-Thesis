@@ -26,7 +26,7 @@ from absl import logging, flags
 FLAGS = flags.FLAGS
 flags.DEFINE_bool('distribute', True, 'initialise distribute.')
 
-if flags.distribute:
+if FLAGS.distribute:
   jax.distributed.initialize()
 
 def training_run(env_name, env_parameters, train_parameters):
