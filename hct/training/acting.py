@@ -25,7 +25,7 @@ from brax.training.types import PRNGKey
 from brax.training.types import Transition
 from brax.v1 import envs as envs_v1
 import jax
-import numpy as np
+import jax.numpy as jp
 
 State = Union[envs.State, envs_v1.State]
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
@@ -127,10 +127,10 @@ class Evaluator:
     eval_metrics.active_episodes.block_until_ready()
     epoch_eval_time = time.time() - t
     metrics = {
-        f'eval/episode_{name}': np.mean(value) if aggregate_episodes else value
+        f'eval/episode_{name}': (jp.mean(value), jp.std(value)) if aggregate_episodes else value
         for name, value in eval_metrics.episode_metrics.items()
     }
-    metrics['eval/avg_episode_length'] = np.mean(eval_metrics.episode_steps)
+    metrics['eval/avg_episode_length'] = (jp.mean(eval_metrics.episode_steps), jp.std(eval_metrics.episode_steps))
     metrics['eval/epoch_eval_time'] = epoch_eval_time
     metrics['eval/sps'] = self._steps_per_unroll / epoch_eval_time
     self._eval_walltime = self._eval_walltime + epoch_eval_time

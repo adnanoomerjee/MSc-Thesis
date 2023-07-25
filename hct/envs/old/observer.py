@@ -3,7 +3,7 @@ Defines Observer and Observation classes
 """
 from hct.envs.goal import Goal
 from hct.envs.tools import world_to_relative, dist_quat, concatenate_attrs, pad
-from hct.envs.env_tools import EnvTools
+from hct.envs.old.env_tools import EnvTools
 
 from brax.math import safe_norm
 from brax import base

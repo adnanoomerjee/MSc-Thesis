@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 67, in <module>
+    jax.distributed.initialize()
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/distributed.py", line 168, in initialize
+    global_state.initialize(coordinator_address, num_processes, process_id, local_device_ids)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/distributed.py", line 47, in initialize
+    clusters.ClusterEnv.auto_detect_unset_distributed_params(
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/clusters/cluster.py", line 54, in auto_detect_unset_distributed_params
+    coordinator_address = env.get_coordinator_address()
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/clusters/slurm_cluster.py", line 40, in get_coordinator_address
+    node_list = os.environ[_NODE_LIST]
+                ~~~~~~~~~~^^^^^^^^^^^^
+  File "<frozen os>", line 679, in __getitem__
+KeyError: 'SLURM_STEP_NODELIST'

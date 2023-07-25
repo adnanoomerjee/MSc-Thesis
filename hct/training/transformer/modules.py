@@ -20,10 +20,10 @@ class PositionalEncoding(linen.Module):
   seq_len: int
   dropout_rate: float = 0.1
   kernel_init: Callable[..., Any] = jax.nn.initializers.normal(stddev=1.0)
-  deterministic: bool = False if dropout_rate > 0.0 else True
 
   @linen.compact
   def __call__(self, data: jp.ndarray):
+    deterministic = not self.has_rng('dropout')
     # (B, L, O)
     pe = self.param(
         'pe',
@@ -33,7 +33,7 @@ class PositionalEncoding(linen.Module):
     output = data + pe
     output = linen.Dropout(
         rate=self.dropout_rate,
-        deterministic=self.deterministic)(output)
+        deterministic=deterministic)(output)
     return output
 
 class TransformerEncoderLayer(linen.Module):
@@ -54,6 +54,7 @@ class TransformerEncoderLayer(linen.Module):
       self,
       src: jp.ndarray,
       src_mask: Optional[jp.ndarray] = None) -> jp.ndarray:
+    deterministic = not self.has_rng('dropout')
     src2, attn_weights = SelfAttention(
         num_heads=self.num_heads,
         dtype=self.dtype,
@@ -62,10 +63,10 @@ class TransformerEncoderLayer(linen.Module):
         bias_init=self.bias_init,
         use_bias=True,
         broadcast_dropout=False,
-        dropout_rate=self.dropout_rate)(src, mask=src_mask)
+        dropout_rate=self.dropout_rate)(src, mask=src_mask, deterministic=deterministic)
     src = src + linen.Dropout(
         rate=self.dropout_rate,
-        deterministic=self.deterministic)(src2)
+        deterministic=deterministic)(src2)
     src = linen.LayerNorm(dtype=self.dtype)(src)
     src2 = linen.Dense(
         self.dim_feedforward,
@@ -75,7 +76,7 @@ class TransformerEncoderLayer(linen.Module):
     src2 = self.activation(src2)
     src2 = linen.Dropout(
         rate=self.dropout_rate,
-        deterministic=self.deterministic)(src2)
+        deterministic=deterministic)(src2)
     src2 = linen.Dense(
         self.d_model,
         dtype=self.dtype,
@@ -83,7 +84,7 @@ class TransformerEncoderLayer(linen.Module):
         bias_init=self.bias_init)(src2)
     src = src + linen.Dropout(
         rate=self.dropout_rate,
-        deterministic=self.deterministic)(src2)
+        deterministic=deterministic)(src2)
     src = linen.LayerNorm(dtype=self.dtype)(src)
     return src, attn_weights
 

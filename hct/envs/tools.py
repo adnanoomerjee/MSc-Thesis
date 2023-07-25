@@ -1,15 +1,20 @@
+import time
+
+from hct.envs.goal import Goal
+
 from brax.math import *
 from brax.base import Motion, State, System, Transform
 from brax.scan import link_types
+from brax.kinematics import inverse, world_to_joint
 
 import jax
 import jax.numpy as jp
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import types, functools
 from multipledispatch import dispatch
 
-def __mul__(a, b: Any) -> Any:
+def mul(a: Any, b: Any) -> Any:
     return jax.tree_map(lambda x, y: x * y, a, b)
 
 def concatenate_attrs(obj):
@@ -62,10 +67,10 @@ def quaternion_to_spherical(quat: jp.ndarray) -> jp.ndarray:
     v, _ = normalize(xyz)
     angle = 2*safe_arccos(w)
     # convert cartesian axis-angle to spherical
-    r = angle
-    theta = safe_arccos(v[2])
+    r = jax.lax.select(angle <= jp.pi, angle, angle - 2*jp.pi)
+    theta = safe_arccos(v[2]) # inclination angle
     theta = jp.where(jp.abs(r) == 0.0, theta*0, theta)
-    phi = jp.arctan2(v[1], v[0])
+    phi = jp.arctan2(v[1], v[0]) # azimuthal angle
     return jp.array([r, theta, phi])
 
 def q_spherical_to_quaternion(g: jp.ndarray, state: State, sys: System):
@@ -74,7 +79,7 @@ def q_spherical_to_quaternion(g: jp.ndarray, state: State, sys: System):
       if link_type == 'f':
         pos = feature[0:3] + state.x.pos[0] # root pos from state egocentric to world
         rot = spherical_to_quaternion(feature[3:6])
-        return jp.concatenate([pos,rot])
+        return jp.concatenate([pos,rot], axis=-1)
       else:
         return feature
     return link_types(sys, scanfunc, 'd', 'q', g)
@@ -123,7 +128,7 @@ def _(t, sys: System, mask_root: bool = False) -> Transform:
     root = t.take(0)
     if mask_root:
         root_mask = Transform(jp.array([0.0, 0.0, 1.0]), jp.array([1.0, 1.0, 1.0, 1.0]))
-        root = jax.tree_map(lambda x, y: x * y, root, root_mask)
+        root = mul(root, root_mask)
     r = t.take(link_parents)
     return t.vmap(in_axes=(0,0)).to_local(r).index_set(0, root)
 
@@ -155,8 +160,55 @@ def dist_quat(quat1, quat2):
 def random_ordered_subset(rng, idx: jp.ndarray):
     rng, rng1, rng2 = jax.random.split(rng, 3)
     n = jax.random.choice(rng2, jp.array(range(0, len(idx)+1)))
-    subset = jax.random.choice(rng1, idx, shape=(n,), replace = False)
+    subset = jax.random.choice(rng1, jp.array(idx), shape=(n,), replace = False)
     return jp.sort(subset)
+
+def shortest_angle_diff(angle1, angle2):
+    diff = angle2 - angle1
+    diff = (diff + jp.pi) % (2 * jp.pi) - jp.pi
+    return diff
+
+def minmax_angles(angles, goal_root_rot_range = None):
+
+    x = jp.cos(angles)
+    y = jp.sin(angles)
+
+    jp.arctan2(y, x)
+
+    # Compute the center of all angles
+    center = jp.arctan2(jp.sum(jp.sin(angles), axis=0), jp.sum(jp.cos(angles), axis=0))
+
+    # Subtract the center from all angles
+    difference_from_center = shortest_angle_diff(angles, center)
+    argmin = jp.argmin(difference_from_center, axis=0)
+    argmax = jp.argmax(difference_from_center, axis=0)
+    
+    minimum = jp.take_along_axis(angles, argmin[None, ...], axis=0)
+    maximum = jp.take_along_axis(angles, argmax[None, ...], axis=0)
+
+    if goal_root_rot_range is not None:
+        minimum = minimum.at[0].set(goal_root_rot_range[:,0])
+        maximum = maximum.at[0].set(goal_root_rot_range[:,1])
+
+    return minimum, maximum
+
+def timeit(fn: Callable, *args):
+    start_time = time.time()
+    fn_output = jax.block_until_ready(fn(*args))
+    end_time = time.time()
+    return fn_output, end_time - start_time
+
+def goal_to_state(goal: Goal, sys: System):
+    x = goal.x_world
+    xd = goal.xd_world
+    j, jd, _, _ = world_to_joint(sys, x, xd)
+    q, qd = inverse(sys, j, jd)
+    return State(q, qd, x, xd, None)
+
+
+
+
+
 
 
 

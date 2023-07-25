@@ -20,20 +20,19 @@ See: https://arxiv.org/pdf/1707.06347.pdf
 import functools
 import time
 from typing import Callable, Optional, Tuple, Union
-from hct.training import network_factory as ppo_networks
-from hct.training.policy_value_factory import make_transformer_policy_value, make_mlp_policy_value
-from hct.training.types import PolicyValueFactory
 
+from hct.training import network_factory as ppo_networks
+from hct.envs.old.policy_value_factory import make_transformer_policy_value, make_mlp_policy_value
+from hct.training import acting
+from hct.training import losses as ppo_losses
 
 from absl import logging
 from brax import envs
-from brax.training import acting
 from brax.training import gradients
 from brax.training import pmap
 from brax.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
-from brax.training.agents.ppo import losses as ppo_losses
 from brax.training.types import Params
 from brax.training.types import PRNGKey
 from brax.training.types import NetworkFactory
@@ -97,9 +96,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
           normalize_advantage: bool = True,
           eval_env: Optional[envs.Env] = None,
-          policy_params_fn: Callable[..., None] = lambda *args: None,
-          policy_value_factory: PolicyValueFactory = make_transformer_policy_value,
-          **policy_value_factory_kwargs):
+          policy_params_fn: Callable[..., None] = lambda *args: None):
   
 
   """PPO training."""
@@ -176,14 +173,10 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   
   #Define network
   ppo_network = network_factory(
+      env=env,
       observation_size=env_state.obs.shape[-1],
-      action_size=env.max_actions_per_node,
-      policy_value_factory=policy_value_factory,
-      obs_mask=env.obs_mask,
-      action_mask=env.action_mask,
-      non_actuator_nodes=env.non_actuator_nodes,
-      preprocess_observations_fn=normalize,
-      **policy_value_factory_kwargs)
+      preprocess_observations_fn=normalize
+      )
   make_policy = ppo_networks.make_inference_fn(ppo_network)
 
 
@@ -194,6 +187,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   #Define loss function
   loss_fn = functools.partial(
       ppo_losses.compute_ppo_loss,
+      env=env,
       ppo_network=ppo_network,
       entropy_cost=entropy_cost,
       discounting=discounting,
@@ -251,7 +245,10 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
     key_sgd, key_generate_unroll, new_key = jax.random.split(key, 3)
 
     policy = make_policy(
-        (training_state.normalizer_params, training_state.params.policy)) # (processor_params, policy_params)
+        (training_state.normalizer_params, training_state.params.policy),
+        obs_mask=env.obs_mask,
+        action_mask=env.action_mask,
+        non_actuator_nodes=env.non_actuator_nodes) # (processor_params, policy_params)
 
     def f(carry, unused_t):
       current_state, current_key = carry
@@ -348,13 +345,18 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
 
   evaluator = acting.Evaluator(
       eval_env,
-      functools.partial(make_policy, deterministic=deterministic_eval),
+      functools.partial(make_policy, 
+                        obs_mask=env.obs_mask, 
+                        action_mask=env.action_mask,
+                        non_actuator_nodes=env.non_actuator_nodes,
+                        deterministic=deterministic_eval),
       num_eval_envs=num_eval_envs,
       episode_length=episode_length,
       action_repeat=action_repeat,
       key=eval_key)
 
   # Run initial eval
+  logging.info('Running initial eval')
   if process_id == 0 and num_evals > 1:
     metrics = evaluator.run_evaluation(
         _unpmap(
@@ -386,7 +388,9 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       progress_fn(current_step, metrics)
       params = _unpmap(
           (training_state.normalizer_params, training_state.params.policy))
-      policy_params_fn(current_step, make_policy, params)
+      
+      if ((it % num_evals_after_init // 10) == 0) or it == num_evals_after_init-1:
+        policy_params_fn(current_step, make_policy, params)
 
   total_steps = current_step
   assert total_steps >= num_timesteps

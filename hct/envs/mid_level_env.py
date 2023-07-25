@@ -1,30 +1,32 @@
-# pylint:disable=g-multiple-import
-"""Creates an environment for the lowest level of a hierarchical framework"""
 import sys
-sys.path.insert(0, "/nfs/nhome/live/aoomerjee/MSc-Thesis/")
+import inspect
+import os
+path = "/nfs/nhome/live/aoomerjee/MSc-Thesis/"
+sys.path.insert(0, path)
 
-from hct.envs.old.observer import Observer
-from hct.envs.goal import GoalConstructor, Goal
-from hct.training.network_factory import make_ppo_networks, make_inference_fn
+from hct.envs.goal import Goal
+from hct.envs.tools import *
+from hct.envs.ant_test import AntTest
+from hct.training.configs import NetworkArchitecture, DEFAULT_TRANSFORMER_CONFIGS
+from hct.io import model
 
-
-from brax import base, math
-from brax.training import types
+from brax import base, generalized
 from brax.envs.base import Env, PipelineEnv, State
 from brax.io import mjcf
-from brax.kinematics import world_to_joint
-
+from brax.kinematics import forward
 
 from etils import epath
 
 import jax
 from jax import numpy as jp
 
-from typing import Callable
+from typing import Callable, Optional, Literal, Tuple
+
+from absl import logging
 
 
 
-class LowLevelEnv(PipelineEnv):
+class MidLevelEnv(PipelineEnv):
 
   # pyformat: disable
   """
@@ -143,21 +145,38 @@ class LowLevelEnv(PipelineEnv):
 
   def __init__(
       self,
-      make_low_level_inference_fn: Callable[[types.PolicyParams, bool], types.Policy],
+      make_low_level_policy: Callable,
       low_level_params: types.PolicyParams,
-      configs: dict = {},
-      env_name: str = 'ant',
-      unhealthy_cost=1.0,
+      morphology: Literal['ant', 'humanoid'] = 'ant',
+      goal_obs: Literal['concatenate', 'node'] = 'concatenate',
+      position_goals: bool = True,
+      velocity_goals: Literal[None, 'root', 'full'] = None, 
+      goal_root_pos_range: jp.ndarray = jp.array([[-3,3], [-3,3], [-0.25, 0.6]]),
+      goal_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi], [-jp.pi,jp.pi]]),
+      goal_root_vel_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-5, 5]]),
+      goal_root_ang_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-5, 5]]),
+      goalsampler_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi/12], [-jp.pi,jp.pi]]),
+      obs_mask: Optional[jp.ndarray] = None,
+      action_mask: Optional[jp.ndarray] = None,
+      distance_reward: Literal['difference', 'absolute'] = 'difference',
       terminate_when_unhealthy=True,
       terminate_when_goal_reached=True,
       healthy_z_range=(0.2, 2.0),
       goal_distance_epsilon = 0.01,
       reset_noise_scale=0.1,
       backend='generalized',
-      **kwargs,
+      architecture_configs = DEFAULT_TRANSFORMER_CONFIGS,
+      **kwargs
   ):
     
-    path = epath.resource_path('hct') / f'envs/assets/{env_name}.xml'
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    self.parameters = {arg: values[arg] for arg in args}
+    self.parameters.pop('self')
+
+    logging.info('Initialising environment...')
+  
+    path = epath.resource_path('hct') / f'envs/assets/{morphology}.xml'
     sys = mjcf.load(path)
 
     n_frames = 5
@@ -177,19 +196,90 @@ class LowLevelEnv(PipelineEnv):
     kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
 
     super().__init__(sys=sys, backend=backend, **kwargs)
-    self.observer = Observer(sys=sys, configs = configs)
-    self.goalconstructor = GoalConstructor(sys=sys, configs = configs)
-    self._unhealthy_cost = unhealthy_cost
+
+    # Agent attributes
+    self.dof = jp.array(self.sys.dof.limit).T.shape[0]
+    self.num_links = sys.num_links()
+
+    # Reward attributes
+    self.distance_reward = distance_reward
+
+    # Termination attributes
     self._terminate_when_unhealthy = terminate_when_unhealthy
     self._terminate_when_goal_reached = terminate_when_goal_reached
-    self._goal_distance_epsilon = goal_distance_epsilon
+    self.goal_distance_epsilon = goal_distance_epsilon
     self._healthy_z_range = healthy_z_range
+
+    # Reset attributes
     self._reset_noise_scale = reset_noise_scale
+
+    # Goal attributes
+    self.goal_nodes = True if goal_obs == 'node' else False
+    self.position_goals = position_goals
+    self.velocity_goals = False if velocity_goals is None else True
+    self.root_velocity_goals = True if velocity_goals == 'root' else False
+    self.full_velocity_goals = True if velocity_goals == 'full' else False
+    self.goal_size = (self.dof*2,)
+    self.goal_root_pos_range = goal_root_pos_range
+    self.goal_root_rot_range = goal_root_rot_range
+    self.goal_root_vel_range = goal_root_vel_range
+    self.goal_root_ang_range = goal_root_ang_range
+
+    if self.position_goals and self.full_velocity_goals:
+      self.goal_x_mask = 1
+      self.goal_xd_mask = 1
+      self.goal_obs_width = 13
+    elif self.position_goals and self.root_velocity_goals:
+      self.goal_x_mask = 1
+      self.goal_xd_mask = jp.zeros((self.num_links,3)).at[0].set(1.0)
+      self.goal_obs_width = 13
+    elif self.position_goals:
+      self.goal_x_mask = 1
+      self.goal_xd_mask = 0
+      self.goal_obs_width = 7
+    elif self.full_velocity_goals:
+      self.goal_x_mask = 0
+      self.goal_xd_mask = 1
+      self.goal_obs_width = 6
+    else:
+      assert self.position_goals, "Cannot only specify root_velocity_goals"
+
+    self.limb_ranges = self._get_limb_ranges()
+    self.max_goal_dist = self.limb_ranges['max_dist']
+
+    # Goal sampling attributes
+    if morphology == 'ant':
+      self.end_effector_idx = [2,4,6,8]
+      self.goal_z_cond = jp.array([0.078, 1.8])
+      self.goal_polar_cond = jp.pi/12
+      self.goal_contact_cond = 0.09
+
+    goalsampler_q_limit = jp.array(self.sys.dof.limit).T.at[0:3].set(self.goal_root_pos_range).at[3:6].set(goalsampler_root_rot_range)
+    goalsampler_qd_limit = self.limb_ranges['goalsampler_qd_limit']
+    self.goalsampler_limit = jp.concatenate([goalsampler_q_limit, goalsampler_qd_limit])
+
+    # Training attributes
+    self.max_actions_per_node = 24 if not self.velocity_goals else 48
     self.obs_mask = obs_mask
-    self.non_actuator_nodes = non_actuator_nodes
+    self.non_actuator_nodes = None
     self.action_mask = action_mask
-    self.low_level_policy = make_low_level_inference_fn(low_level_params)
-    
+    self.num_nodes = 5
+
+    # Network architecture
+    self.network_architecture = NetworkArchitecture.create(name='Transformer', **architecture_configs)
+    num_attn_heads = self.network_architecture.configs['num_heads']
+
+    # Observation attributes
+    self.state_obs_width = 13
+    concat_obs_width = self.state_obs_width + self.goal_obs_width
+    if concat_obs_width % num_attn_heads != 0:
+      self.concat_obs_width = ((concat_obs_width // num_attn_heads) + 1) * num_attn_heads
+    else:
+      self.concat_obs_width = concat_obs_width
+  
+    self.low_level_policy = make_low_level_policy(low_level_params)
+
+    logging.info('Environment initialised.')
 
   def reset(self, rng: jp.ndarray) -> State:
     """Resets the environment to an initial state."""

@@ -15,14 +15,22 @@
 """PPO networks."""
 
 import functools
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
-from hct.training.types import PolicyValueFactory
+from hct.training.models import make_mlp_model, make_transformer_model
+from hct.training import distribution
 
-from brax.training import distribution
-from brax.training import types
+from brax.envs import Env
+from brax.training.types import (
+  Action, 
+  identity_observation_preprocessor, 
+  Extra, 
+  Observation, 
+  Policy, 
+  PolicyParams, 
+  PreprocessObservationFn,
+  PRNGKey)
 from brax.training.networks import FeedForwardNetwork
-from brax.training.types import PRNGKey
 
 
 from flax import linen, struct
@@ -36,36 +44,42 @@ class PPONetworks:
   policy_network: FeedForwardNetwork
   value_network: FeedForwardNetwork
   parametric_action_distribution: distribution.ParametricDistribution
-  obs_mask: Optional[jp.ndarray] # (num_nodes, obs_size)
-  action_mask: Optional[jp.ndarray] # (num_actuators, action_size)
-  non_actuator_nodes: Optional[jp.ndarray] # actuator node idx (num_idx,)
+
 
 def make_inference_fn(ppo_networks: PPONetworks):
   """Creates params and inference function for the PPO agent."""
 
-  def inference_fn(params: types.PolicyParams,
-                  deterministic: bool = False) -> types.Policy:
+  def inference_fn(
+        params: PolicyParams,
+        train: bool = False,
+        obs_mask: jp.ndarray = None,
+        action_mask: jp.ndarray = None,
+        non_actuator_nodes: jp.ndarray = None,
+        deterministic: bool = False
+        ) -> Policy:
     
     policy_network = ppo_networks.policy_network
     parametric_action_distribution = ppo_networks.parametric_action_distribution
-    obs_mask = ppo_networks.obs_mask
-    non_actuator_nodes = ppo_networks.non_actuator_nodes
-    action_mask: jp.ndarray
 
-    def policy(observations: types.Observation,
-               key_sample: PRNGKey) -> Tuple[types.Action, types.Extra]:
-      logits, attn_weights = policy_network.apply(*params, observations, obs_mask)
-      if non_actuator_nodes is not None:
-        logits = jp.delete(logits, non_actuator_nodes, axis=-1)
+    def policy(observations: Observation,
+               rng: PRNGKey) -> Tuple[Action, Extra]:
+      dropout_rng, sample_rng = jax.random.split(rng)
+      if train == False:
+        dropout_rng = None
+      logits, attn_weights = policy_network.apply(
+        *params, 
+        obs=observations, 
+        obs_mask=obs_mask,
+        action_mask=action_mask, 
+        non_actuator_nodes=non_actuator_nodes, 
+        dropout_rng=dropout_rng)
       if deterministic:
-        return ppo_networks.parametric_action_distribution.mode(logits), {}
+        return ppo_networks.parametric_action_distribution.mode(logits), {'attn_weights': attn_weights}
       raw_actions = parametric_action_distribution.sample_no_postprocessing(
-          logits, key_sample)
+          logits, sample_rng)
       log_prob = parametric_action_distribution.log_prob(logits, raw_actions)
       postprocessed_actions = parametric_action_distribution.postprocess(
-          raw_actions)[non_actuator_nodes] * action_mask
-      if action_mask is not None:
-        postprocessed_actions = postprocessed_actions * action_mask
+          raw_actions)
       return postprocessed_actions, {
           'log_prob': log_prob,
           'raw_action': raw_actions,
@@ -79,15 +93,53 @@ def make_inference_fn(ppo_networks: PPONetworks):
 
 # Creates a PPONetworks object
 def make_ppo_networks(
+      env: Env,
+      observation_size: int,
+      preprocess_observations_fn: PreprocessObservationFn = identity_observation_preprocessor
+      ) -> PPONetworks:
+  """Make PPO networks with preprocessor."""
+
+  network_architecture = env.network_architecture
+  parametric_action_distribution = distribution.NormalTanhDistribution(
+      event_size=env.max_actions_per_node, 
+      network_architecture=network_architecture.name,
+      min_std=0)
+
+  if network_architecture.name == 'MLP':
+    policy_network, value_network = make_mlp_model(
+        obs_size = observation_size,
+        policy_params_size = parametric_action_distribution.param_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        **network_architecture.configs)
+
+  elif network_architecture.name == 'Transformer':
+    policy_network, value_network = make_transformer_model(
+        obs_size = observation_size,
+        policy_params_size = parametric_action_distribution.param_size,
+        preprocess_observations_fn=preprocess_observations_fn,
+        num_nodes=env.num_nodes,
+        **network_architecture.configs)
+  
+  return PPONetworks(
+      policy_network=policy_network,
+      value_network=value_network,
+      parametric_action_distribution=parametric_action_distribution,
+  )
+      
+'''
+# Creates a PPONetworks object
+def make_ppo_networks(
       observation_size: int,
       action_size: int,
       policy_value_factory: PolicyValueFactory,
+      architecture: Literal['MLP', 'Transformer'] = 'Transformer',
       obs_mask: jp.ndarray = None,
       action_mask: jp.ndarray = None,
       non_actuator_nodes: jp.ndarray = None, 
+      max_num_nodes: Optional[jp.ndarray] = None,
       preprocess_observations_fn: types.PreprocessObservationFn = types
       .identity_observation_preprocessor,
-      **policy_value_factory_kwargs,
+      **network_configs,
       ) -> PPONetworks:
   """Make PPO networks with preprocessor."""
 
@@ -99,15 +151,16 @@ def make_ppo_networks(
       policy_param_size = parametric_action_distribution.param_size,
       preprocess_observations_fn=preprocess_observations_fn,
       obs_mask=obs_mask,
-      **policy_value_factory_kwargs)
+      max_num_nodes=max_num_nodes
+      **network_configs)
   
   return PPONetworks(
       policy_network=policy_network,
       value_network=value_network,
       parametric_action_distribution=parametric_action_distribution,
-      obs_mask=obs_mask,
       action_mask=action_mask,
       non_actuator_nodes=non_actuator_nodes)
+
 
 """
     policy_module = TransformerPolicyNetwork(
@@ -165,5 +218,55 @@ def make_MLP_modules(
   dummy_obs = jp.zeros((1, obs_size))
 
   return policy_module, value_module, dummy_obs
+def make_inference_fn(ppo_networks: PPONetworks):
+  """Creates params and inference function for the PPO agent."""
 
-"""
+  def inference_fn(
+        params: PolicyParams,
+        train: bool = False,
+        obs_mask: jp.ndarray = None,
+        deterministic: bool = False
+        ) -> Policy:
+    
+    env = ppo_networks.env
+    policy_network = ppo_networks.policy_network
+    parametric_action_distribution = ppo_networks.parametric_action_distribution
+    non_actuator_nodes = env.non_actuator_nodes if hasattr(env, 'non_actuator_nodes') else None # (num_actuators, action_size)
+    action_mask = env.action_mask if hasattr(env, 'action_mask') else None # actuator node idx (num_idx,)
+
+    def policy(observations: Observation,
+               rng: PRNGKey) -> Tuple[Action, Extra]:
+      dropout_rng, sample_rng = jax.random.split(rng)
+      if train == False:
+        dropout_rng = None
+      logits, attn_weights = policy_network.apply(
+        *params, 
+        obs=observations, 
+        obs_mask=obs_mask,
+        dropout_rng=dropout_rng)
+      if non_actuator_nodes is not None:
+        logits = jp.delete(logits, non_actuator_nodes, axis=-2)
+      if deterministic:
+        return ppo_networks.parametric_action_distribution.mode(logits), {'attn_weights': attn_weights}
+      print(logits.shape)
+      raw_actions = parametric_action_distribution.sample_no_postprocessing(
+          logits, sample_rng)
+      print(raw_actions.shape)
+      log_prob = parametric_action_distribution.log_prob(logits, raw_actions)
+      print(log_prob.shape)
+      print(parametric_action_distribution.postprocess(
+          raw_actions).shape)
+      postprocessed_actions = jp.squeeze(parametric_action_distribution.postprocess(
+          raw_actions), axis=-1)
+      if action_mask is not None:
+        postprocessed_actions = postprocessed_actions * action_mask
+      return postprocessed_actions, {
+          'log_prob': log_prob,
+          'raw_action': raw_actions,
+          'attn_weights': attn_weights
+      }
+
+    return policy
+
+  return inference_fn
+'''

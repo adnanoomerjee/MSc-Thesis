@@ -347,7 +347,7 @@ class SelfAttention(MultiHeadDotProductAttentionWithWeight):
 
   @compact
   def __call__(self, inputs_q: Array, mask: Optional[Array] = None, # type: ignore
-               deterministic: Optional[bool] = None):
+               deterministic: Optional[bool] = False):
     """Applies multi-head dot product self-attention on the input data.
 
     Projects the inputs into multi-headed query, key, and value vectors,

@@ -1,5 +1,5 @@
 
-from typing import Any, Protocol, Tuple, TypeVar
+from typing import Any, Optional, Protocol, Tuple, TypeVar
 
 from brax.training import types
 from brax.training.networks import FeedForwardNetwork
@@ -15,6 +15,8 @@ class PolicyValueFactory(Protocol[PolicyValueNetworks]):
       obs_size: int,
       policy_params_size: int,
       preprocess_observations_fn: types.PreprocessObservationFn,
-      **kwargs: Any
+      obs_mask: Optional[jp.ndarray],
+      max_num_nodes: Optional[int] = None,
+      **network_configs: Any
   ) -> PolicyValueNetworks:
     pass

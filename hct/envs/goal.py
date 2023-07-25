@@ -1,11 +1,6 @@
 
-from hct.envs.env_tools import EnvTools
-from hct.envs.tools import __mul__, q_spherical_to_quaternion, world_to_relative, random_ordered_subset
 
-from brax import base, generalized
-from brax.kinematics import forward
-from brax.geometry import contact
-
+from brax import base
 import jax
 from jax import numpy as jp
 
@@ -17,11 +12,15 @@ class Goal:
   """Target configuration for agent to acheive 
 
   Attributes:
+      g: unprocessed goal
       x_world: position in world frame
       x_rel: position in frame relative to parents
       xd_world: velocity in world frame 
       xd_rel: velocity in frame relative to parents
   """
+  g: jp.ndarray
+  q: jp.ndarray
+  qd: jp.ndarray
   x_world: base.Transform
   x_rel: base.Transform
   xd_world: base.Motion

@@ -1,16 +1,21 @@
 # pylint:disable=g-multiple-import
 """Creates an environment for the lowest level of a hierarchical framework"""
 import sys
-sys.path.insert(0, "/nfs/nhome/live/aoomerjee/MSc-Thesis/")
+import inspect
+import os
+path = "/nfs/nhome/live/aoomerjee/MSc-Thesis/"
+sys.path.insert(0, path)
 
 from hct.envs.goal import Goal
 from hct.envs.tools import *
+from hct.envs.ant_test import AntTest
+from hct.training.configs import NetworkArchitecture, DEFAULT_TRANSFORMER_CONFIGS
+from hct.io import model
 
 from brax import base, generalized
 from brax.envs.base import Env, PipelineEnv, State
 from brax.io import mjcf
 from brax.kinematics import forward
-from brax.geometry import contact
 
 from etils import epath
 
@@ -18,6 +23,8 @@ import jax
 from jax import numpy as jp
 
 from typing import Optional, Literal, Tuple
+
+from absl import logging
 
 
 class LowLevelEnv(PipelineEnv):
@@ -151,31 +158,37 @@ class LowLevelEnv(PipelineEnv):
   '''
 
   def __init__(
-      self,
-      env_name: Literal['ant', 'humanoid'] = 'ant',
-      goal_obs: Literal['concatenate', 'node'] = 'concatenate',
-      position_goals: bool = True,
-      velocity_goals: Literal[None, 'root', 'full'] = None, 
-      goal_x_range: Tuple[base.Transform, base.Transform] = None,
-      goal_xd_range: Tuple[base.Motion, base.Motion] = None,
-      goalsampler_root_pos_range: jp.ndarray = jp.array([[-3,3], [-3,3], [-0.25, 0.6]]),
-      goalsampler_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi], [-jp.pi, jp.pi]]),
-      goalsampler_qd_limit: Optional[jp.ndarray] = None,
-      max_goal_dist: Optional[jp.ndarray] = None,
-      obs_mask: Optional[jp.ndarray] = None,
-      action_mask: Optional[jp.ndarray] = None,
-      distance_reward: Literal['difference', 'absolute'] = 'difference',
-      unhealthy_cost=1.0,
-      terminate_when_unhealthy=True,
-      terminate_when_goal_reached=True,
-      healthy_z_range=(0.2, 2.0),
-      goal_distance_epsilon = 0.01,
-      reset_noise_scale=0.1,
-      backend='generalized',
-      **kwargs,
+    self,
+    morphology: Literal['ant', 'humanoid'] = 'ant',
+    goal_obs: Literal['concatenate', 'node'] = 'concatenate',
+    position_goals: bool = True,
+    velocity_goals: Literal[None, 'root', 'full'] = None, 
+    goal_root_pos_range: jp.ndarray = jp.array([[-3,3], [-3,3], [-0.25, 0.6]]),
+    goal_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi], [-jp.pi,jp.pi]]),
+    goal_root_vel_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-5, 5]]),
+    goal_root_ang_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-5, 5]]),
+    goalsampler_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi/12], [-jp.pi,jp.pi]]),
+    obs_mask: Optional[jp.ndarray] = None,
+    action_mask: Optional[jp.ndarray] = None,
+    distance_reward: Literal['difference', 'absolute'] = 'difference',
+    terminate_when_unhealthy=True,
+    terminate_when_goal_reached=True,
+    healthy_z_range=(0.2, 2.0),
+    goal_distance_epsilon = 0.01,
+    reset_noise_scale=0.1,
+    backend='generalized',
+    architecture_configs = DEFAULT_TRANSFORMER_CONFIGS,
+    **kwargs
   ):
-    
-    path = epath.resource_path('hct') / f'envs/assets/{env_name}.xml'
+
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    self.parameters = {arg: values[arg] for arg in args}
+    self.parameters.pop('self')
+
+    logging.info('Initialising environment...')
+  
+    path = epath.resource_path('hct') / f'envs/assets/{morphology}.xml'
     sys = mjcf.load(path)
 
     n_frames = 5
@@ -186,9 +199,9 @@ class LowLevelEnv(PipelineEnv):
 
     if backend == 'positional':
       sys = sys.replace(
-          actuator=sys.actuator.replace(
-              gear=200 * jp.ones_like(sys.actuator.gear)
-          )
+        actuator=sys.actuator.replace(
+          gear=200 * jp.ones_like(sys.actuator.gear)
+        )
       )
 
     kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
@@ -201,7 +214,6 @@ class LowLevelEnv(PipelineEnv):
 
     # Reward attributes
     self.distance_reward = distance_reward
-    self.unhealthy_cost = unhealthy_cost
 
     # Termination attributes
     self._terminate_when_unhealthy = terminate_when_unhealthy
@@ -212,9 +224,6 @@ class LowLevelEnv(PipelineEnv):
     # Reset attributes
     self._reset_noise_scale = reset_noise_scale
 
-    # State attributes
-    self.state_obs_width = 13
-
     # Goal attributes
     self.goal_nodes = True if goal_obs == 'node' else False
     self.position_goals = position_goals
@@ -222,40 +231,64 @@ class LowLevelEnv(PipelineEnv):
     self.root_velocity_goals = True if velocity_goals == 'root' else False
     self.full_velocity_goals = True if velocity_goals == 'full' else False
     self.goal_size = (self.dof*2,)
-    assert self.position_goals or self.velocity_goals, "Must specify at least one goal type"
-    assert not (self.velocity_goals and goalsampler_qd_limit is None), "Must specify goalsampler_qd_limit"
-    assert not (self.velocity_goals and goalsampler_qd_limit.shape[0] != self.dof), "Must specify correctly configured goalsampler_qd_limit"
+    self.goal_root_pos_range = goal_root_pos_range
+    self.goal_root_rot_range = goal_root_rot_range
+    self.goal_root_vel_range = goal_root_vel_range
+    self.goal_root_ang_range = goal_root_ang_range
+
     if self.position_goals and self.full_velocity_goals:
-         self.goal_x_mask = 1
-         self.goal_xd_mask = 1
+      self.goal_x_mask = 1
+      self.goal_xd_mask = 1
+      self.goal_obs_width = 13
     elif self.position_goals and self.root_velocity_goals:
-        self.goal_x_mask = 1
-        self.goal_xd_mask = jp.zeros((self.num_links,3)).at[0].set(1.0)
+      self.goal_x_mask = 1
+      self.goal_xd_mask = jp.zeros((self.num_links,3)).at[0].set(1.0)
+      self.goal_obs_width = 13
     elif self.position_goals:
-        self.goal_x_mask = 1
-        self.goal_xd_mask = 0
+      self.goal_x_mask = 1
+      self.goal_xd_mask = 0
+      self.goal_obs_width = 7
     elif self.full_velocity_goals:
-        self.goal_x_mask = 0
-        self.goal_xd_mask = 1
+      self.goal_x_mask = 0
+      self.goal_xd_mask = 1
+      self.goal_obs_width = 6
     else:
-        assert self.position_goals, "Cannot only specify root_velocity_goals"
+      assert self.position_goals, "Cannot only specify root_velocity_goals"
+
+    self.limb_ranges = self._get_limb_ranges()
+    self.max_goal_dist = self.limb_ranges['max_dist']
 
     # Goal sampling attributes
-    if env_name == 'ant':
-        self.end_effector_idx = [2,4,6,8]
-        self.goal_z_cond = jp.array([0.078, 1.3])
-        self.goal_polar_cond = jp.pi/12
-        self.goal_contact_cond = [0.078, 0.09]
+    if morphology == 'ant':
+      self.end_effector_idx = [2,4,6,8]
+      self.goal_z_cond = jp.array([0.078, 1.8])
+      self.goal_polar_cond = jp.pi/12
+      self.goal_contact_cond = 0.09
 
-    goalsampler_q_limit = jp.array(self.sys.dof.limit).T.at[0:3].set(goalsampler_root_pos_range).at[3:6].set(goalsampler_root_rot_range)
+    goalsampler_q_limit = jp.array(self.sys.dof.limit).T.at[0:3].set(self.goal_root_pos_range).at[3:6].set(goalsampler_root_rot_range)
+    goalsampler_qd_limit = self.limb_ranges['goalsampler_qd_limit']
     self.goalsampler_limit = jp.concatenate([goalsampler_q_limit, goalsampler_qd_limit])
 
     # Training attributes
-    self.max_goal_dist = max_goal_dist
-    self.max_actions_per_node = 1 if env_name == 'ant' else 2
+    self.max_actions_per_node = 1
     self.obs_mask = obs_mask
-    self.non_actuator_nodes = 0
+    self.non_actuator_nodes = 0 if not self.goal_nodes else jp.array([0] + [i for i in range(9, 18)])
     self.action_mask = action_mask
+    self.num_nodes = 9
+
+    # Network architecture
+    self.network_architecture = NetworkArchitecture.create(name='Transformer', **architecture_configs)
+    num_attn_heads = self.network_architecture.configs['num_heads']
+
+    # Observation attributes
+    self.state_obs_width = 13
+    concat_obs_width = self.state_obs_width + self.goal_obs_width
+    if concat_obs_width % num_attn_heads != 0:
+      self.concat_obs_width = ((concat_obs_width // num_attn_heads) + 1) * num_attn_heads
+    else:
+      self.concat_obs_width = concat_obs_width
+
+    logging.info('Environment initialised.')
 
   def reset(self, rng: jp.ndarray) -> State:
     """Resets the environment to an initial state."""
@@ -264,7 +297,7 @@ class LowLevelEnv(PipelineEnv):
     low, hi = -self._reset_noise_scale, self._reset_noise_scale
 
     q = self.sys.init_q + jax.random.uniform(
-        rng1, (self.sys.q_size(),), minval=low, maxval=hi
+      rng1, (self.sys.q_size(),), minval=low, maxval=hi
     )
 
     qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
@@ -278,11 +311,14 @@ class LowLevelEnv(PipelineEnv):
     obs = self._get_obs(pipeline_state, goal)
     
     # Set metrics
-    reward, done, zero = jp.zeros(3)
+    reward, done = jp.zeros(2)
+    
+    if self.distance_reward == 'absolute':
+      reward=-goal_distance
+
     metrics = {
-        'intrinsic_reward': zero,
-        'unhealthy_cost': zero,
-        'goal_distance': goal_distance
+      'reward': reward,
+      'goal_distance': goal_distance
     }
 
     info = {'goal': goal}
@@ -292,6 +328,8 @@ class LowLevelEnv(PipelineEnv):
 
   def step(self, state: State, action: jp.ndarray) -> State:
     """Run one timestep of the environment's dynamics."""
+
+    action = jp.squeeze(action, axis=-1)
 
     goal = state.info['goal']
 
@@ -314,32 +352,76 @@ class LowLevelEnv(PipelineEnv):
       previous_state=prev_pipeline_state, 
       current_state=pipeline_state,
       goal=goal
-      )
-    unhealthy_cost = self.unhealthy_cost * is_unhealthy
+    )
 
     # Check if goal reached
     goal_reached = jp.where(
-        goal_distance < self.goal_distance_epsilon, x=1.0, y=0.0
+      goal_distance < self.goal_distance_epsilon, x=1.0, y=0.0
     )
 
     # Compute state observation
     obs = self._get_obs(pipeline_state, goal)
-    reward = intrinsic_reward - unhealthy_cost
 
-    if (bool(is_unhealthy) or bool(goal_reached))\
-        and self._terminate_when_unhealthy:
-      done = 1.0 
+    if self._terminate_when_unhealthy:
+      done = 1.0 - jp.logical_or(is_unhealthy, goal_reached)
     else:
       done = 0.0
 
     state.metrics.update(
-        intrinsic_reward=intrinsic_reward,
-        unhealthy_cost=unhealthy_cost
+      reward=intrinsic_reward,
+      goal_distance=goal_distance
     )
     return state.replace(
-        pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
+      pipeline_state=pipeline_state, obs=obs, reward=intrinsic_reward, done=done
     )
+  
+  def test(self, iterations):
 
+    reset_states = []
+    step_states = []
+    reset_times = []
+
+    rng = jax.random.PRNGKey(0)
+    rng, rng1, rng2 = jax.random.split(rng, 3)
+
+    action = jax.random.uniform(rng1, shape=(self.sys.act_size(), 1), minval=-1, maxval=1)
+
+    jit_reset = jax.jit(self.reset)
+    jit_step = jax.jit(self.step)
+
+    reset_state, reset_time = timeit(jit_reset, rng2)
+    step_state, step_time = timeit(jit_step, reset_state, action)
+
+    time_to_jit_reset = reset_time
+    time_to_jit_step = step_time
+
+    time_to_call_reset = 0
+    time_to_call_step = 0
+
+    for i in range(iterations):
+
+      rng, rng1, rng2= jax.random.split(rng, 3)
+
+      action = jax.random.uniform(rng1, shape=(self.sys.act_size(), 1), minval=-1, maxval=1)
+
+      reset_state, reset_time = timeit(jit_reset, rng2)
+      step_state, step_time = timeit(jit_step, reset_state, action)
+      
+      time_to_call_reset += reset_time/iterations
+      time_to_call_step += step_time/iterations
+
+      reset_states.append(reset_state)
+      step_states.append(step_state)
+
+      reset_times.append(reset_time)
+      
+    print(f"Time to JIT 'reset': {time_to_jit_reset} seconds")
+    print(f"Time to JIT 'step': {time_to_jit_step} seconds")
+    print(f"Time to call 'reset' after JIT compilation: {time_to_call_reset} seconds")
+    print(f"Time to call 'step' after JIT compilation: {time_to_call_step} seconds")
+
+    return jit_reset, jit_step, reset_states, step_states, reset_times
+    
 
   def _get_obs(self, state: base.State, goal: Goal) -> jp.ndarray:
     """
@@ -353,39 +435,41 @@ class LowLevelEnv(PipelineEnv):
     Returns:
         obs: (num_links, 13 + goal_size) array containing goal observations:
     """
-    def _get_obs_x(self, state: Union[base.State, Goal]):
-        """Returns world root position (masking XY position) and limb position relative to parent"""
-        return world_to_relative(state.x, self.sys, mask_root = True)
+    def _get_obs_x(state: Union[base.State, Goal]):
+      """Returns world root position (masking XY position) and limb position relative to parent"""
+      return world_to_relative(state.x, self.sys, mask_root = True)
     
-    def _get_obs_gx(self, goal: Goal, state: base.State):
-        """Returns world root position and egocentric limb position"""
-        state_x = world_to_relative(state.x, self.sys)
-        goal_x = goal.x_rel
-        return goal_x.vmap(in_axes = (0, 0)).to_local(state_x) * self.goal_x_mask
+    def _get_obs_gx(goal: Goal, state: base.State):
+      """Returns world root position and egocentric limb position"""
+      state_x = world_to_relative(state.x, self.sys)
+      goal_x = goal.x_rel
+      return goal_x.vmap(in_axes = (0, 0)).to_local(state_x) * self.goal_x_mask
     
-    def _get_obs_xd(self, state: Union[base.State, Goal]):
-        """Returns world root velocity and egocentric limb velocity"""
-        return world_to_relative(state.x, self.sys)
+    def _get_obs_xd(state: Union[base.State, Goal]):
+      """Returns world root velocity and egocentric limb velocity"""
+      return world_to_relative(state.xd, self.sys)
     
-    def _get_obs_gxd(self, goal: Goal, sxd: base.State):
-        """Returns world root velocity and egocentric limb velocity"""
-        return goal.xd_rel.__sub__(sxd) * self.goal_xd_mask
+    def _get_obs_gxd(goal: Goal, sxd: base.State):
+      """Returns world root velocity and egocentric limb velocity"""
+      return goal.xd_rel.__sub__(sxd) * self.goal_xd_mask
           
     sx = concatenate_attrs(_get_obs_x(state))
-    sxd = concatenate_attrs(_get_obs_xd(state))
+    sxd = _get_obs_xd(state)
     gx = concatenate_attrs(_get_obs_gx(goal, state)) if self.position_goals else jp.empty((self.num_links, 0))
     gxd = concatenate_attrs(_get_obs_gxd(goal, sxd)) if self.velocity_goals else jp.empty((self.num_links, 0))
-    
+    sxd = concatenate_attrs(sxd)
+
     s_obs = jp.concatenate([sx, sxd], axis = -1)
     g_obs = jp.concatenate([gx, gxd], axis = -1)
 
     if self.goal_nodes:
-        g_obs = pad(g_obs, self.state_obs_width)
-        s_obs = jp.concatenate([s_obs, jp.zeros((self.num_links,1))], axis = -1)
-        g_obs = jp.concatenate([s_obs, jp.ones((self.num_links,1))], axis = -1)
-        obs = jp.concatenate([s_obs, g_obs], axis = 0)
+      g_obs = pad(g_obs, self.state_obs_width)
+      s_obs = jp.concatenate([s_obs, jp.zeros((self.num_links,1))], axis = -1)
+      g_obs = jp.concatenate([s_obs, jp.ones((self.num_links,1))], axis = -1)
+      obs = jp.concatenate([s_obs, g_obs], axis = -2)
     else:
-        obs = jp.concatenate([s_obs, g_obs], axis=-1)
+      obs = jp.concatenate([s_obs, g_obs], axis=-1)
+      obs = pad(obs, self.concat_obs_width)
 
     return obs
 
@@ -403,6 +487,7 @@ class LowLevelEnv(PipelineEnv):
        difference_reward,
        absolute_reward)
   
+
   def _goal_dist(self, state: base.State, goal: Goal, frame: Literal['world', 'relative']):
     """
     Computes distance d(s,g) between state and goal in world frame, 
@@ -411,25 +496,25 @@ class LowLevelEnv(PipelineEnv):
     dist(s,g) = ||s-g||
     """
     if frame == 'world':
-        state_x = state.x
-        state_xd = state.xd 
-        goal_x = goal.x_world
-        goal_xd = goal.xd_world
+      state_x = state.x
+      state_xd = state.xd 
+      goal_x = goal.x_world
+      goal_xd = goal.xd_world
     else:
-        state_x = world_to_relative(state.x, self.sys)
-        state_xd = world_to_relative(state.xd, self.sys)
-        goal_x = goal.x_rel
-        goal_xd = goal.xd_rel
+      state_x = world_to_relative(state.x, self.sys)
+      state_xd = world_to_relative(state.xd, self.sys)
+      goal_x = goal.x_rel
+      goal_xd = goal.xd_rel
 
     rpos = state_x.pos - goal_x.pos
     rrot = dist_quat(state_x.rot, goal_x.rot)
     rx = concatenate_attrs(base.Transform(rpos, rrot) * self.goal_x_mask)
     rxd = concatenate_attrs(state_xd.__sub__(goal_xd) * self.goal_xd_mask)
-    s_minus_g = jp.concatenate([rx, rxd])
+    s_minus_g = jp.concatenate([rx, rxd], axis=-1)
     return safe_norm(s_minus_g)
   
   
-  def _sample_goal(self, rng: jp.ndarray, state: generalized.base.State):
+  def _sample_goal(self, rng: jp.ndarray, state: base.State):
     """
     Samples normalised goal and outputs a goal state 
     
@@ -447,7 +532,8 @@ class LowLevelEnv(PipelineEnv):
     Returns:
       goal: Goal
     """
-    def _create_goal(self, g: jp.ndarray, state: base.State, sys: base.System) -> Goal:
+
+    def _create_goal(g: jp.ndarray, state: base.State) -> Goal:
       """
       Creates a goal state 
 
@@ -458,50 +544,182 @@ class LowLevelEnv(PipelineEnv):
       Returns:
         Goal: goal state
       """
-      q = q_spherical_to_quaternion(g[:self.dof], state, sys)
+      q = q_spherical_to_quaternion(g[:self.dof], state, self.sys)
       qd = g[-self.dof:]
       x_world, xd_world = forward(self.sys, q, qd)
-      x_world, xd_world = __mul__(x_world, self.goal_x_mask), __mul__(xd_world, self.goal_xd_mask)
-      x_rel, xd_rel = world_to_relative(x_world, sys), world_to_relative(xd_world, sys)
-      x_rel, xd_rel = __mul__(x_rel, self.goal_x_mask), __mul__(xd_rel, self.goal_xd_mask)
-      return Goal(x_world, x_rel, xd_world, xd_rel)
+      x_world, xd_world = x_world * self.goal_x_mask, xd_world * self.goal_xd_mask
+      x_rel, xd_rel = world_to_relative(x_world, self.sys), world_to_relative(xd_world, self.sys)
+      x_rel, xd_rel = x_rel * self.goal_x_mask, xd_rel * self.goal_xd_mask
+      return Goal(g, q, qd, x_world, x_rel, xd_world, xd_rel)
 
-    rng, rng1 = jax.random.split(rng)
-    foot_contact_idx = random_ordered_subset(rng1, self.end_effector_idx)
+    rng, rng1, rng2 = jax.random.split(rng, 3)
+    g = jax.random.uniform(
+      rng, 
+      shape=self.goal_size, 
+      minval=self.goalsampler_limit[:, 0], 
+      maxval=self.goalsampler_limit[:, 1]
+    )
+    goal = _create_goal(g, state)
+    z = goal.x_world.pos[:,2]
+    z_root = z[0] - jp.min(z) + self.goal_z_cond[0] 
+    z_root = z_root + jax.random.choice(rng1, jp.array([0, 1]), p=jp.array([0.9, 0.1])) * jax.random.uniform(rng2, minval=z_root, maxval=self.goal_z_cond[1]-z_root)
 
-    def sample(carry):
+    q = goal.q.at[2].set(z_root)
+    qd = goal.qd
+    x_world, xd_world = forward(self.sys, q, qd)
+    x_world, xd_world = x_world * self.goal_x_mask, xd_world * self.goal_xd_mask
+    x_rel, xd_rel = world_to_relative(x_world, self.sys), world_to_relative(xd_world, self.sys)
+    x_rel, xd_rel = x_rel * self.goal_x_mask, xd_rel * self.goal_xd_mask   
+
+    return Goal(g, q, qd, x_world, x_rel, xd_world, xd_rel)
+  
+  def _get_limb_ranges(self):
+    '''    
+    filename = f'{path}/hct/envs/lowlevelranges'
+    
+    if os.path.isfile(filename):
+      return model.load(filename)
+    '''
+    quaternion_to_spherical_vmap = jax.vmap(quaternion_to_spherical, in_axes=0)
+
+    test_rollout, _ = AntTest().test_rollout()
+
+    rollout_rel_x = [world_to_relative(state.x, self.sys) for state in test_rollout]
+    rollout_rel_xd = [world_to_relative(state.xd, self.sys) for state in test_rollout]
+
+    rollout_rel_pos = jp.stack([x.pos for x in rollout_rel_x])
+    rollout_rel_rot = {
+      'quaternion': jp.stack([x.rot for x in rollout_rel_x]),
+      'spherical': jp.stack([quaternion_to_spherical_vmap(x.rot) for x in rollout_rel_x])
+    }
+    rollout_rel_vel = jp.stack([xd.vel for xd in rollout_rel_xd])
+    rollout_rel_ang = jp.stack([xd.ang for xd in rollout_rel_xd])
+    rollout_qd = jp.stack([state.qd for state in test_rollout])
+
+    # goal ranges
+    pos_ranges = (
+      jp.min(rollout_rel_pos, axis=0).at[0].set(self.goal_root_pos_range[:,0]), 
+      jp.max(rollout_rel_pos, axis=0).at[0].set(self.goal_root_pos_range[:,1])
+    )
+    rot_ranges = minmax_angles(rollout_rel_rot['spherical'], self.goal_root_rot_range)
+    vel_ranges = (
+      jp.min(rollout_rel_vel, axis=0).at[0].set(self.goal_root_vel_range[:,0]), 
+      jp.max(rollout_rel_vel, axis=0).at[0].set(self.goal_root_vel_range[:,1])
+    )
+    ang_ranges = (
+      jp.min(rollout_rel_ang, axis=0).at[0].set(self.goal_root_ang_range[:,0]), 
+      jp.max(rollout_rel_ang, axis=0).at[0].set(self.goal_root_ang_range[:,1])
+    )
+    goalsampler_qd_limit = jp.array(
+      [jp.min(rollout_qd, axis=0).at[0:6].set(jp.concatenate([self.goal_root_vel_range[:,0], self.goal_root_ang_range[:,0]])), 
+      jp.max(rollout_qd, axis=0).at[0:6].set(jp.concatenate([self.goal_root_vel_range[:,1], self.goal_root_ang_range[:,1]]))]
+    ).T
+
+    # max distances
+    x_min = rollout_rel_x[7*30-1].index_set(0, base.Transform(self.goal_root_pos_range[:,0], jp.array([1,0,0,0])))
+    x_max = rollout_rel_x[15*30-1].index_set(0, base.Transform(self.goal_root_pos_range[:,1], jp.array([0,1,0,0])))
+    xd_min = base.Motion(vel_ranges[0], ang_ranges[0])
+    xd_max = base.Motion(vel_ranges[1], ang_ranges[1])
+
+    rpos = x_max.pos - x_min.pos
+    rrot = dist_quat(x_max.rot, x_min.rot)
+    rx = concatenate_attrs(base.Transform(rpos, rrot) * self.goal_x_mask)
+    rxd = concatenate_attrs(xd_max.__sub__(xd_min) * self.goal_xd_mask)
+    s_minus_g = jp.concatenate([rx, rxd], axis=-1)
+    max_dist = safe_norm(s_minus_g)
+
+    return_dict = {
+      'max_dist': max_dist,
+      'pos_ranges': pos_ranges, 
+      'rot_ranges': rot_ranges, 
+      'vel_ranges': vel_ranges, 
+      'ang_ranges': ang_ranges, 
+      'goalsampler_qd_limit': goalsampler_qd_limit,
+    }
+
+    return return_dict
+
+
+      
+
+
+'''
+def _sample_goal(self, rng: jp.ndarray, state: base.State):
+    """
+    Samples normalised goal and outputs a goal state 
+    
+    Goal is restricted to ensure a valid state, and acheive a range of positions
+    that are expected to be achieved by the optimal policy. Restictions on
+      Z position of all links
+      Root rotation
+      Number of feet in contact with ground:
+        Randomly sample an ordered subset of end effector IDs
+        Ensure that these end effectors are in contact with ground
+
+    Args:
+      rng: jp.ndarray
+
+    Returns:
+      goal: Goal
+    """
+
+    rng, rng1, rng2 = jax.random.split(rng, 3)
+    randint = jax.random.randint(rng1,shape=(1,), minval = 0, maxval = 4)
+    randchoice = jax.random.choice(rng2, jp.array([self.goal_contact_cond, self.goal_z_cond[1]]), shape=(1,), p = jp.array([0.9, 0.1]))
+    goal_contact_cond = jp.full((4,), self.goal_z_cond[1]).at[randint].set(randchoice)
+
+    def _create_goal(g: jp.ndarray, state: base.State) -> Goal:
+      """
+      Creates a goal state 
+
+      Args:
+        g: jp.ndarray normalised goal
+        state: environment state
+
+      Returns:
+        Goal: goal state
+      """
+      q = q_spherical_to_quaternion(g[:self.dof], state, self.sys)
+      qd = g[-self.dof:]
+      x_world, xd_world = forward(self.sys, q, qd)
+      x_world, xd_world = x_world * self.goal_x_mask, xd_world * self.goal_xd_mask
+      x_rel, xd_rel = world_to_relative(x_world, self.sys), world_to_relative(xd_world, self.sys)
+      x_rel, xd_rel = x_rel * self.goal_x_mask, xd_rel * self.goal_xd_mask
+      return Goal(g, q, qd, x_world, x_rel, xd_world, xd_rel)
+
+    def _sample(carry):
       rng, _ = carry
       rng, rng1 = jax.random.split(rng)
       g = jax.random.uniform(
-          rng1, 
-          shape=self.goal_size, 
-          minval=self.goal_limit[:, 0], 
-          maxval=self.goal_limit[:, 1]
-        )
-      goal = self.create_goal(g, state)
+        rng1, 
+        shape=self.goal_size, 
+        minval=self.goalsampler_limit[:, 0], 
+        maxval=self.goalsampler_limit[:, 1]
+      )
+      goal = _create_goal(g, state)
       return rng, goal
     
-    def reject(carry):
+    def _reject(carry):
       rng, goal = carry
       #cpos_foot_z = contact(self.sys, goal.x).pos[foot_contact_idx, 2]
-      cpos_foot_z = goal.x_world.pos[foot_contact_idx, 2]
+      foot_z = goal.x_world.pos[self.end_effector_idx, 2]
       z = goal.x_world.pos[:,2]
-      polar = goal.bpg[6]
-      cond = jp.any(z < self.goal_z_cond[0]) | \
-        jp.any(z > self.goal_z_cond[1]) | \
+      polar = goal.g[4]
+      cond = \
+        jp.any(z < self.goal_z_cond[0]) | jp.any(z > self.goal_z_cond[1]) | \
         (polar > self.goal_polar_cond) | \
-        jp.any(cpos_foot_z > self.goal_contact_cond[1]) | \
-        jp.any(cpos_foot_z < self.goal_contact_cond[0])
+        jp.any(foot_z > goal_contact_cond)
       return cond
     
     init_g = jax.random.uniform(
-        rng, 
-        shape=self.goal_size, 
-        minval=-1, 
-        maxval=1
+      rng, 
+      shape=self.goal_size, 
+      minval=self.goalsampler_limit[:, 0], 
+      maxval=self.goalsampler_limit[:, 1]
     )
 
     init_val = rng, _create_goal(init_g, state)
-    goal = jax.lax.while_loop(reject, sample, init_val)[1]
+    goal = jax.lax.while_loop(_reject, _sample, init_val)[1]
 
     return goal
+'''
