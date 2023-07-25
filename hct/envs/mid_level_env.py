@@ -355,11 +355,10 @@ class MidLevelEnv(PipelineEnv):
     low_level_obs = self._get_low_level_obs(pipeline_state, low_level_goal)
     reward = intrinsic_reward - unhealthy_cost
 
-    if (bool(is_unhealthy) or bool(goal_reached))\
-        and self._terminate_when_unhealthy:
-      done = 1.0 
+    if self._terminate_when_unhealthy:
+      done = 0 + jp.logical_or(is_unhealthy, goal_reached)
     else:
-      done = 0.0
+      done = 0 + goal_reached
 
     state.metrics.update(
         intrinsic_reward=intrinsic_reward,

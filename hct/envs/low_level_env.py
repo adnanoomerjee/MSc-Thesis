@@ -174,7 +174,7 @@ class LowLevelEnv(PipelineEnv):
     healthy_z_range=(0.2, 2.0),
     goal_distance_epsilon = 0.01,
     reset_noise_scale=0.1,
-    backend='generalized',
+    backend='positional',
     architecture_configs = DEFAULT_TRANSFORMER_CONFIGS,
     **kwargs
   ):
@@ -259,7 +259,7 @@ class LowLevelEnv(PipelineEnv):
     # Goal sampling attributes
     if morphology == 'ant':
       self.end_effector_idx = [2,4,6,8]
-      self.goal_z_cond = jp.array([0.078, 1.8])
+      self.goal_z_cond = jp.array([0.078, 1.8]) if backend == 'generalized' else jp.array([0.08, 1.8])
       self.goal_polar_cond = jp.pi/12
       self.goal_contact_cond = 0.09
 
@@ -361,9 +361,9 @@ class LowLevelEnv(PipelineEnv):
     obs = self._get_obs(pipeline_state, goal)
 
     if self._terminate_when_unhealthy:
-      done = 0 + jp.logical_or(is_unhealthy, goal_reached)
+      done = 0.0 + jp.logical_or(is_unhealthy, goal_reached)
     else:
-      done = 0 + goal_reached
+      done = 0.0 + goal_reached
 
     state.metrics.update(
       reward=intrinsic_reward,
