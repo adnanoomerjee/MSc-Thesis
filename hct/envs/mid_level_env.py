@@ -1,8 +1,6 @@
 import sys
 import inspect
 import os
-path = "/nfs/nhome/live/aoomerjee/MSc-Thesis/"
-sys.path.insert(0, path)
 
 from hct.envs.goal import Goal
 from hct.envs.tools import *
