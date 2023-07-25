@@ -21,8 +21,13 @@ from hct.io import model
 from brax.io import json
 from brax.io import html
 
-from absl import logging
+from absl import logging, flags
 
+FLAGS = flags.FLAGS
+flags.DEFINE_bool('distribute', True, 'initialise distribute.')
+
+if flags.distribute:
+  jax.distributed.initialize()
 
 def training_run(env_name, env_parameters, train_parameters):
     
@@ -62,7 +67,6 @@ def training_run(env_name, env_parameters, train_parameters):
         policy_params_fn=save
     )
 
-#if __name__== '__main__':
-jax.distributed.initialize()
-for config in LOW_LEVEL_ENV_PARAMETERS:
-  training_run(env_name='LowLevel', env_parameters=config, train_parameters={})
+if __name__== '__main__':
+  for config in LOW_LEVEL_ENV_PARAMETERS:
+    training_run(env_name='LowLevel', env_parameters=config, train_parameters={})
