@@ -25,6 +25,7 @@ from absl import app, logging, flags
 
 FLAGS = flags.FLAGS
 flags.DEFINE_bool('distribute', True, 'initialise distribute.')
+logging.set_verbosity(logging.INFO)
 
 def training_run(env_name, env_parameters, train_parameters):
     
@@ -34,7 +35,6 @@ def training_run(env_name, env_parameters, train_parameters):
     os.makedirs(os.path.dirname(filepath))
 
     logging.get_absl_handler().use_absl_log_file('log', filepath)
-    logging.set_verbosity(logging.INFO)
 
     env = envs.get_environment(
         env_name=env_name,
