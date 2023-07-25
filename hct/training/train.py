@@ -42,6 +42,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+
 InferenceParams = Tuple[running_statistics.NestedMeanStd, Params]
 Metrics = types.Metrics
 
@@ -111,6 +112,10 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   local_devices_to_use = local_device_count
   if max_devices_per_host:
     local_devices_to_use = min(local_devices_to_use, max_devices_per_host)
+  if 'gpu' in str(jax.devices()[0]).lower():
+    logging.info("JAX is running on GPU.")
+  else:
+    logging.info("JAX is not running on GPU.")
   logging.info(
       'Device count: %d, process count: %d (id %d), local device count: %d, '
       'devices to be used count: %d', jax.device_count(), process_count,
@@ -377,7 +382,6 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
      training_metrics) = training_epoch_with_timing(training_state, env_state,
                                                     epoch_keys)
     current_step = int(_unpmap(training_state.env_steps))
-
     if process_id == 0:
       # Run evals.
       metrics = evaluator.run_evaluation(

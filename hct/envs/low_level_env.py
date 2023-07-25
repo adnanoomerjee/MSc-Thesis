@@ -361,9 +361,9 @@ class LowLevelEnv(PipelineEnv):
     obs = self._get_obs(pipeline_state, goal)
 
     if self._terminate_when_unhealthy:
-      done = 1.0 - jp.logical_or(is_unhealthy, goal_reached)
+      done = 0 + jp.logical_or(is_unhealthy, goal_reached)
     else:
-      done = 0.0
+      done = 0 + goal_reached
 
     state.metrics.update(
       reward=intrinsic_reward,
