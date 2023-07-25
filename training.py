@@ -26,9 +26,6 @@ from absl import logging, flags
 FLAGS = flags.FLAGS
 flags.DEFINE_bool('distribute', True, 'initialise distribute.')
 
-if FLAGS.distribute:
-  jax.distributed.initialize()
-
 def training_run(env_name, env_parameters, train_parameters):
     
     current_datetime = datetime.now().strftime("%Y-%m-%d, %H:%M:%S")
@@ -68,5 +65,9 @@ def training_run(env_name, env_parameters, train_parameters):
     )
 
 if __name__== '__main__':
+
+  if FLAGS.distribute:
+    jax.distributed.initialize()
+
   for config in LOW_LEVEL_ENV_PARAMETERS:
     training_run(env_name='LowLevel', env_parameters=config, train_parameters={})
