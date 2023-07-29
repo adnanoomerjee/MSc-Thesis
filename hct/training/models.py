@@ -17,7 +17,7 @@
 import functools
 from typing import Callable, Literal, Optional, Sequence, Tuple
 
-from hct.training.transformer.modules import TransformerEncoder
+from hct.training.transformer.modules import TransformerEncoder, PositionalEncoding, PositionalEncoding1D
 
 from brax.training.types import PreprocessObservationFn
 from brax.training.spectral_norm import SNDense
@@ -31,34 +31,32 @@ import jax.numpy as jp
 class MLP(linen.Module):
   """MLP module."""
   layer_sizes: Sequence[int]
-  activation: ActivationFn = linen.relu
-  kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
   activate_final: bool = False
   bias: bool = True
-  dropout_rate: float = 0.2
+  dropout_rate: float = 0.0
 
   @linen.compact
   def __call__(self, 
                data: jp.ndarray,
-               action_mask: jp.ndarray):
+               action_mask: jp.ndarray = None):
     deterministic = not self.has_rng('dropout')
     hidden = data
     for i, hidden_size in enumerate(self.layer_sizes):
       hidden = linen.Dense(
           hidden_size,
           name=f'hidden_{i}',
-          kernel_init=self.kernel_init,
+          kernel_init=jax.nn.initializers.lecun_uniform(),
           use_bias=self.bias)(
               hidden)
       if i != len(self.layer_sizes) - 1 or self.activate_final:
-        hidden = self.activation(hidden)
+        hidden = linen.swish(hidden)
       if i != len(self.layer_sizes) - 1:
         hidden = linen.Dropout(
             rate=self.dropout_rate,
             deterministic=deterministic)(hidden)
-      hidden = jp.squeeze(hidden, axis=-1)
-      if action_mask is not None:
-        hidden = hidden * jp.repeat(action_mask, 2, axis=-1) 
+    hidden = jp.squeeze(hidden, axis=-1) if hidden.shape[-1] == 1 else hidden
+    if action_mask is not None:
+      hidden = hidden * jp.repeat(action_mask, 2, axis=-1) 
     return hidden, None
 
 
@@ -82,12 +80,15 @@ class Transformer(linen.Module):
                non_actuator_nodes: jp.ndarray = jp.empty(0, dtype=jp.int32)):
     # (B, L, O) O: observation size
     input_size = data.shape[-1]
+    seq_len = data.shape[-2]
     # encoder
     output = linen.Dense(
       self.d_model,
       kernel_init=jax.nn.initializers.uniform(scale=0.1),
       bias_init=linen.initializers.zeros)(
         data) * jp.sqrt(input_size)
+    output = PositionalEncoding1D(
+      d_model=self.d_model, seq_len=seq_len, dropout_rate=self.dropout_rate)(output)
     output, attn_weights = TransformerEncoder(
       num_layers=self.num_layers,
       norm=linen.LayerNorm if self.transformer_norm else None,
@@ -122,20 +123,15 @@ def make_mlp_model(
     policy_params_size: int,
     preprocess_observations_fn: PreprocessObservationFn,
     policy_hidden_layer_sizes: Sequence[int] = (32,) * 4,
-    value_hidden_layer_sizes: Sequence[int] = (256,) * 5,
-    activation: ActivationFn = linen.swish
+    value_hidden_layer_sizes: Sequence[int] = (256,) * 5
   ) -> Tuple[FeedForwardNetwork, FeedForwardNetwork]:
   """Creates MLP policy and value modules"""
 
   policy_module = MLP(
-      layer_sizes=list(policy_hidden_layer_sizes) + [policy_params_size],
-      activation=activation,
-      kernel_init=jax.nn.initializers.lecun_uniform())
+      layer_sizes=list(policy_hidden_layer_sizes) + [policy_params_size])
   
   value_module = MLP(
-      layer_sizes=list(value_hidden_layer_sizes) + [1],
-      activation=activation,
-      kernel_init=jax.nn.initializers.lecun_uniform())
+      layer_sizes=list(value_hidden_layer_sizes) + [1])
   
   dummy_obs = jp.zeros((1, obs_size))
 
@@ -177,7 +173,7 @@ def make_mlp_model(
       return apply
 
     return FeedForwardNetwork(
-        init=lambda key: value_module.init(key, dummy_obs), apply=apply)
+        init=lambda key: value_module.init(key, dummy_obs, None), apply=apply)
 
   return make_policy_network(), make_value_network()
 
@@ -187,13 +183,20 @@ def make_transformer_model(
   policy_params_size: int,
   preprocess_observations_fn: PreprocessObservationFn,
   num_nodes: int,
-  num_layers: int = 3,
-  d_model: int = 256,
-  num_heads: int = 2,
-  dim_feedforward: int = 512,
-  dropout_rate: float = 0.2,
-  transformer_norm: bool = True,
-  condition_decoder: bool = True
+  policy_num_layers: int = 3,
+  policy_d_model: int = 256,
+  policy_num_heads: int = 2,
+  policy_dim_feedforward: int = 512,
+  policy_dropout_rate: float = 0.2,
+  policy_transformer_norm: bool = True,
+  policy_condition_decoder: bool = True,
+  value_num_layers: int = 3,
+  value_d_model: int = 256,
+  value_num_heads: int = 2,
+  value_dim_feedforward: int = 512,
+  value_dropout_rate: float = 0.2,
+  value_transformer_norm: bool = True,
+  value_condition_decoder: bool = True
 ) -> Tuple[FeedForwardNetwork, FeedForwardNetwork]: 
   """Creates Transformer policy/value networks
   Args:
@@ -215,23 +218,29 @@ def make_transformer_model(
 
   transformer = functools.partial(
     Transformer,
-    policy_params_size=policy_params_size,
-    num_layers=num_layers,
-    d_model=d_model,
-    num_heads=num_heads,
-    dim_feedforward=dim_feedforward,
-    dropout_rate=dropout_rate,
-    transformer_norm=transformer_norm,
-    condition_decoder=condition_decoder
-  )
+    policy_params_size=policy_params_size)
   
   policy_module = transformer(
-    network_type = 'policy'
-    )
+    network_type = 'policy',
+    num_layers=policy_num_layers,
+    d_model=policy_d_model,
+    num_heads=policy_num_heads,
+    dim_feedforward=policy_dim_feedforward,
+    dropout_rate=policy_dropout_rate,
+    transformer_norm=policy_transformer_norm,
+    condition_decoder=policy_condition_decoder
+  )
 
   value_module = transformer(
-    network_type = 'value'
-    )
+    network_type = 'value',
+    num_layers=value_num_layers,
+    d_model=value_d_model,
+    num_heads=value_num_heads,
+    dim_feedforward=value_dim_feedforward,
+    dropout_rate=value_dropout_rate,
+    transformer_norm=value_transformer_norm,
+    condition_decoder=value_condition_decoder
+  )
   
   dummy_obs = jp.zeros((1, num_nodes, obs_size))
 

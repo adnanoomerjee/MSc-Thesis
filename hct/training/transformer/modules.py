@@ -28,13 +28,41 @@ class PositionalEncoding(linen.Module):
     pe = self.param(
         'pe',
         self.kernel_init,
-        (data.shape[1], self.d_model),
+        (data.shape[-2], self.d_model),
         jp.float32)
     output = data + pe
     output = linen.Dropout(
         rate=self.dropout_rate,
         deterministic=deterministic)(output)
     return output
+  
+
+class PositionalEncoding1D(linen.Module):
+  """PositionalEncoding1D module."""
+  d_model: int
+  seq_len: int
+  dropout_rate: float = 0.1
+  deterministic: bool = False if dropout_rate > 0.0 else True
+
+  def setup(self):
+    assert self.d_model % 2 == 0
+    position = jp.arange(self.seq_len).reshape(self.seq_len, 1)
+    div_term = jp.exp(jp.arange(0, self.d_model, 2) * (-jp.log(10000.0) / self.d_model))
+    self.pe = jp.zeros((self.seq_len, self.d_model))
+    self.pe = self.pe.at[jp.index_exp[:, 0::2]].set(jp.sin(position * div_term))
+    self.pe = self.pe.at[jp.index_exp[:, 1::2]].set(jp.cos(position * div_term))
+    self.pe = jax.lax.stop_gradient(self.pe)
+
+  @linen.compact
+  def __call__(self, data: jp.ndarray):
+    # (B, L, O)
+    deterministic = not self.has_rng('dropout')
+    output = data + self.pe
+    output = linen.Dropout(
+        rate=self.dropout_rate,
+        deterministic=deterministic)(output)
+    return output
+
 
 class TransformerEncoderLayer(linen.Module):
   """TransformerEncoderLayer module."""
@@ -99,7 +127,7 @@ class TransformerEncoder(linen.Module):
   dropout_rate: float = 0.1
   dtype: Any = jp.float32
   qkv_features: Optional[int] = None
-  activation: Callable[[jp.ndarray], jp.ndarray] = linen.relu
+  activation: Callable[[jp.ndarray], jp.ndarray] = linen.gelu
   kernel_init: Callable[..., Any] = lecun_normal()
   bias_init: Callable[..., Any] = zeros
 

@@ -24,14 +24,17 @@ from brax.io import html
 from absl import app, logging, flags
 
 FLAGS = flags.FLAGS
-flags.DEFINE_bool('distribute', True, 'initialise distribute.')
+flags.DEFINE_bool('distributed', False, 'initialise distributed.')
+flags.DEFINE_integer('config', 0, 'run config')
 logging.set_verbosity(logging.INFO)
 
 def training_run(env_name, env_parameters, train_parameters):
     
     current_datetime = datetime.now().strftime("%Y-%m-%d, %H:%M:%S")
-    training_run_name = f'{env_name}, {env_parameters}, {current_datetime}'
-    filepath = f'{cwd}/hct/training_runs/{training_run_name}/'
+    env_parameters_name = env_parameters.copy()
+    env_parameters_name.pop('architecture_configs')
+    training_run_name = f'{env_name}, {env_parameters_name}, {current_datetime}'
+    filepath = f'{cwd}/hct/training_runs_mlp/{training_run_name}/'
     os.makedirs(os.path.dirname(filepath))
 
     logging.get_absl_handler().use_absl_log_file('log', filepath)
@@ -45,19 +48,22 @@ def training_run(env_name, env_parameters, train_parameters):
         **train_parameters)
 
     training_run_metrics = {}
-    training_parameters = env.parameters | train_fn.keywords
+    training_parameters = train_fn.keywords.copy()
     training_parameters.pop('environment')
-    training_parameters['env name'] = env_name
+    training_parameters['env_name'] = env_name
 
     model.save(obj=training_parameters, path=f'{filepath}/training_params')
+    model.save(obj=env_parameters, path=f'{filepath}/env_params')
+    model.save(obj=env, path=f'{filepath}/env')
 
     def progress(num_steps, metrics):
       training_run_metrics.update({str(num_steps): metrics})
 
-    def save(current_step, make_policy, params):
+    def save(current_step, make_policy, params, make_inference_fn, network):
       model.save(obj=training_run_metrics, path=f'{filepath}/training_metrics')
       model.save(obj=params, path=f'{filepath}/model_params')
-      model.save(obj=make_policy, path=f'{filepath}/make_policy')
+      model.save(obj=make_inference_fn, path=f'{filepath}/make_inference_fn')
+      model.save(obj=network, path=f'{filepath}/network')
       
     make_policy, params, metrics = train_fn(
         progress_fn=progress, 
@@ -65,12 +71,12 @@ def training_run(env_name, env_parameters, train_parameters):
     )
 
 def main(argv):
-
-  if FLAGS.distribute:
+  
+  if FLAGS.distributed:
     jax.distributed.initialize()
-
-  for config in LOW_LEVEL_ENV_PARAMETERS:
-    training_run(env_name='LowLevel', env_parameters=config, train_parameters={})
+  config_int = FLAGS.config
+  config = LOW_LEVEL_ENV_PARAMETERS_MLP_4[config_int]
+  training_run(env_name='LowLevel', env_parameters=config, train_parameters=V4_MLP_PARAMETERS)
 
 if __name__== '__main__':
   app.run(main)

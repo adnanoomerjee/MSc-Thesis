@@ -8,7 +8,7 @@ from flax import struct
 
 
 @struct.dataclass
-class Goal:
+class Goal(base.Base):
   """Target configuration for agent to acheive 
 
   Attributes:

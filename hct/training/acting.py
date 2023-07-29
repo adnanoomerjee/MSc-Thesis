@@ -17,6 +17,8 @@
 import time
 from typing import Callable, Sequence, Tuple, Union
 
+from hct.envs.wrappers.training import EvalWrapper
+
 from brax import envs
 from brax.training.types import Metrics
 from brax.training.types import Policy
@@ -98,7 +100,7 @@ class Evaluator:
     self._key = key
     self._eval_walltime = 0.
 
-    eval_env = envs.training.EvalWrapper(eval_env)
+    eval_env = EvalWrapper(eval_env)
 
     def generate_eval_unroll(policy_params: PolicyParams,
                              key: PRNGKey) -> State:
@@ -127,10 +129,10 @@ class Evaluator:
     eval_metrics.active_episodes.block_until_ready()
     epoch_eval_time = time.time() - t
     metrics = {
-        f'eval/episode_{name}': (jp.mean(value), jp.std(value)) if aggregate_episodes else value
+        f'eval/episode_{name}': jp.array([jp.mean(value).item(), jp.std(value).item()]) if aggregate_episodes else value
         for name, value in eval_metrics.episode_metrics.items()
     }
-    metrics['eval/avg_episode_length'] = (jp.mean(eval_metrics.episode_steps), jp.std(eval_metrics.episode_steps))
+    metrics['eval/avg_episode_length'] = jp.array([jp.mean(eval_metrics.episode_steps).item(), jp.std(eval_metrics.episode_steps).item()])
     metrics['eval/epoch_eval_time'] = epoch_eval_time
     metrics['eval/sps'] = self._steps_per_unroll / epoch_eval_time
     self._eval_walltime = self._eval_walltime + epoch_eval_time

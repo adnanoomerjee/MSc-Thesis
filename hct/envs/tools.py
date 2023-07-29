@@ -60,6 +60,13 @@ def spherical_to_quaternion(v: jp.ndarray) -> jp.ndarray:
     quat = quat_rot_axis(axis, angle)
     return quat
 
+def spherical_to_unit_cartesian(v: jp.ndarray) -> jp.ndarray:
+    r, theta, phi = v
+    x = jp.sin(theta) * jp.cos(phi)
+    y = jp.sin(theta) * jp.sin(phi)
+    z = jp.cos(theta)
+    return jp.array([x, y, z]), r
+
 def quaternion_to_spherical(quat: jp.ndarray) -> jp.ndarray:
     w = quat[0]
     xyz = quat[1:]
@@ -78,8 +85,12 @@ def q_spherical_to_quaternion(g: jp.ndarray, state: State, sys: System):
       """Converts backprojected q goal to q state"""
       if link_type == 'f':
         pos = feature[0:3] + state.x.pos[0] # root pos from state egocentric to world
-        rot = spherical_to_quaternion(feature[3:6])
-        return jp.concatenate([pos,rot], axis=-1)
+        z0 = jp.array([0, 0, 1])
+        new_z, angle = spherical_to_unit_cartesian(feature[3:6])
+        rot = from_to(z0, new_z)
+        rot = quat_mul(quat_rot_axis(new_z, angle), rot)
+        #rot = spherical_to_quaternion(feature[3:6])
+        return jp.concatenate([pos, rot], axis=-1)
       else:
         return feature
     return link_types(sys, scanfunc, 'd', 'q', g)
@@ -150,12 +161,8 @@ def _(m: Motion, sys: System, mask_root: bool = False) -> Motion:
 
 @jax.vmap
 def dist_quat(quat1, quat2):
-    """Accounts for double cover property of quaternions"""
-    v1 = quat1 - quat2
-    v2 = quat1 + quat2
-    innerprod1 = jp.dot(v1,v1)
-    innerprod2 = jp.dot(v2,v2)
-    return jax.lax.select(innerprod1<innerprod2, v1, v2)
+    """Cosine angle distance between quaternions"""
+    return jp.expand_dims(jp.abs(jp.dot(quat1, quat2) - 1), -1)
 
 def random_ordered_subset(rng, idx: jp.ndarray):
     rng, rng1, rng2 = jax.random.split(rng, 3)

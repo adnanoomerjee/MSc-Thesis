@@ -21,11 +21,6 @@ import functools
 import time
 from typing import Callable, Optional, Tuple, Union
 
-from hct.training import network_factory as ppo_networks
-from hct.envs.old.policy_value_factory import make_transformer_policy_value, make_mlp_policy_value
-from hct.training import acting
-from hct.training import losses as ppo_losses
-
 from absl import logging
 from brax import envs
 from brax.training import gradients
@@ -37,6 +32,12 @@ from brax.training.types import Params
 from brax.training.types import PRNGKey
 from brax.training.types import NetworkFactory
 from brax.v1 import envs as envs_v1
+
+from hct.training import network_factory as ppo_networks
+from hct.envs.wrappers.training import wrap as wrap_for_training
+from hct.training import acting
+from hct.training import losses as ppo_losses
+
 import flax
 import jax
 import jax.numpy as jnp
@@ -86,6 +87,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           batch_size: int = 32, # Number of experiences (state, action, reward, next state) sampled from the environment per training batch.
           num_minibatches: int = 16, # Number of different subsets that the batch of experiences is divided into. PPO typically uses minibatches to compute an estimate of the expected return and update the policy.
           num_updates_per_batch: int = 2,
+          gradient_clipping: float = 0.1,
           num_evals: int = 1, # Number of evaluations intended to be performed, one per epoch. Evaluations refer to the times when the agent's performance is assessed, usually without learning from this interaction with the environment. 
           normalize_observations: bool = False,
           reward_scaling: float = 1.,
@@ -128,7 +130,6 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       batch_size * unroll_length * num_minibatches * action_repeat)
   num_evals_after_init = max(num_evals - 1, 1)
 
-
   # Number of training_step calls per training_epoch call.
       # equals to ceil(num_timesteps / (num_evals * env_step_per_training_step))
       # Num_epochs = num_evals_after_init
@@ -154,10 +155,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       # 3. Wraps with wrap.AutoResetWrapper, automatically resetting environment when episode is done.
   assert num_envs % device_count == 0
   env = environment
-  if isinstance(env, envs.Env):
-    wrap_for_training = envs.training.wrap
-  else:
-    wrap_for_training = envs_v1.wrappers.wrap_for_training
+
   env = wrap_for_training(
       env, episode_length=episode_length, action_repeat=action_repeat)
 
@@ -182,11 +180,16 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       observation_size=env_state.obs.shape[-1],
       preprocess_observations_fn=normalize
       )
+  
+  make_inference_fn = ppo_networks.make_inference_fn
   make_policy = ppo_networks.make_inference_fn(ppo_network)
 
 
   #Define optimizer
-  optimizer = optax.adam(learning_rate=learning_rate)
+  optimizer = optax.chain(
+    optax.clip(gradient_clipping),
+    optax.adam(learning_rate=learning_rate)
+    )
 
 
   #Define loss function
@@ -373,7 +376,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   training_walltime = 0
   current_step = 0
   for it in range(num_evals_after_init):
-    logging.info('starting iteration %s %s', it, time.time() - xt)
+    logging.info('starting iteration %s, %s steps, %s', it, current_step, time.time() - xt)
 
     # optimization
     epoch_key, local_key = jax.random.split(local_key)
@@ -393,8 +396,8 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       params = _unpmap(
           (training_state.normalizer_params, training_state.params.policy))
       
-      if ((it % num_evals_after_init // 10) == 0) or it == num_evals_after_init-1:
-        policy_params_fn(current_step, make_policy, params)
+      if not (it*10 % (num_evals_after_init*10//10)) or it == num_evals_after_init-1:
+        policy_params_fn(current_step, make_policy, params, make_inference_fn, ppo_network)
 
   total_steps = current_step
   assert total_steps >= num_timesteps

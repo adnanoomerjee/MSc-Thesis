@@ -1,15 +1,278 @@
 Traceback (most recent call last):
-  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 67, in <module>
-    jax.distributed.initialize()
-  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/distributed.py", line 168, in initialize
-    global_state.initialize(coordinator_address, num_processes, process_id, local_device_ids)
-  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/distributed.py", line 47, in initialize
-    clusters.ClusterEnv.auto_detect_unset_distributed_params(
-  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/clusters/cluster.py", line 54, in auto_detect_unset_distributed_params
-    coordinator_address = env.get_coordinator_address()
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/clusters/slurm_cluster.py", line 40, in get_coordinator_address
-    node_list = os.environ[_NODE_LIST]
-                ~~~~~~~~~~^^^^^^^^^^^^
-  File "<frozen os>", line 679, in __getitem__
-KeyError: 'SLURM_STEP_NODELIST'
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 77, in <module>
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+    _run_main(main, args)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 74, in main
+    training_run(env_name='LowLevel', env_parameters=config, train_parameters=V2_PARAMETERS)
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 63, in training_run
+    make_policy, params, metrics = train_fn(
+                                   ^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 385, in train
+    training_metrics) = training_epoch_with_timing(training_state, env_state,
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 318, in training_epoch_with_timing
+    result = training_epoch(training_state, env_state, key)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/traceback_util.py", line 166, in reraise_with_filtered_traceback
+    return fun(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/api.py", line 1774, in cache_miss
+    execute = pxla.xla_pmap_impl_lazy(fun_, *tracers, **params)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/pxla.py", line 411, in xla_pmap_impl_lazy
+    compiled_fun, fingerprint = parallel_callable(
+                                ^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/linear_util.py", line 345, in memoized_fun
+    ans = call(fun, *args)
+          ^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/pxla.py", line 678, in parallel_callable
+    pmap_computation = lower_parallel_callable(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/profiler.py", line 314, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/pxla.py", line 825, in lower_parallel_callable
+    jaxpr, consts, replicas, shards = stage_parallel_callable(pci, fun)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/pxla.py", line 748, in stage_parallel_callable
+    jaxpr, out_sharded_avals, consts = pe.trace_to_jaxpr_final(
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/profiler.py", line 314, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2228, in trace_to_jaxpr_final
+    jaxpr, out_avals, consts = trace_to_subjaxpr_dynamic(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2172, in trace_to_subjaxpr_dynamic
+    ans = fun.call_wrapped(*in_tracers_)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/linear_util.py", line 188, in call_wrapped
+    ans = self.f(*args, **dict(self.params, **kwargs))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 303, in training_epoch
+    (training_state, state, _), loss_metrics = jax.lax.scan(
+                                               ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/traceback_util.py", line 166, in reraise_with_filtered_traceback
+    return fun(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/loops.py", line 250, in scan
+    init_flat, carry_avals, carry_avals_out, init_tree, *rest = _create_jaxpr(init)
+                                                                ^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/loops.py", line 236, in _create_jaxpr
+    jaxpr, consts, out_tree = _initial_style_jaxpr(
+                              ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/common.py", line 60, in _initial_style_jaxpr
+    jaxpr, consts, out_tree = _initial_style_open_jaxpr(
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/common.py", line 54, in _initial_style_open_jaxpr
+    jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(wrapped_fun, in_avals, debug)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/profiler.py", line 314, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2150, in trace_to_jaxpr_dynamic
+    jaxpr, out_avals, consts = trace_to_subjaxpr_dynamic(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2172, in trace_to_subjaxpr_dynamic
+    ans = fun.call_wrapped(*in_tracers_)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/linear_util.py", line 188, in call_wrapped
+    ans = self.f(*args, **dict(self.params, **kwargs))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 288, in training_step
+    (optimizer_state, params, _), metrics = jax.lax.scan(
+                                            ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/traceback_util.py", line 166, in reraise_with_filtered_traceback
+    return fun(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/loops.py", line 250, in scan
+    init_flat, carry_avals, carry_avals_out, init_tree, *rest = _create_jaxpr(init)
+                                                                ^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/loops.py", line 236, in _create_jaxpr
+    jaxpr, consts, out_tree = _initial_style_jaxpr(
+                              ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/common.py", line 60, in _initial_style_jaxpr
+    jaxpr, consts, out_tree = _initial_style_open_jaxpr(
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/common.py", line 54, in _initial_style_open_jaxpr
+    jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(wrapped_fun, in_avals, debug)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/profiler.py", line 314, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2150, in trace_to_jaxpr_dynamic
+    jaxpr, out_avals, consts = trace_to_subjaxpr_dynamic(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2172, in trace_to_subjaxpr_dynamic
+    ans = fun.call_wrapped(*in_tracers_)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/linear_util.py", line 188, in call_wrapped
+    ans = self.f(*args, **dict(self.params, **kwargs))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 241, in sgd_step
+    (optimizer_state, params, _), metrics = jax.lax.scan(
+                                            ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/traceback_util.py", line 166, in reraise_with_filtered_traceback
+    return fun(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/loops.py", line 250, in scan
+    init_flat, carry_avals, carry_avals_out, init_tree, *rest = _create_jaxpr(init)
+                                                                ^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/loops.py", line 236, in _create_jaxpr
+    jaxpr, consts, out_tree = _initial_style_jaxpr(
+                              ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/common.py", line 60, in _initial_style_jaxpr
+    jaxpr, consts, out_tree = _initial_style_open_jaxpr(
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/lax/control_flow/common.py", line 54, in _initial_style_open_jaxpr
+    jaxpr, _, consts = pe.trace_to_jaxpr_dynamic(wrapped_fun, in_avals, debug)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/profiler.py", line 314, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2150, in trace_to_jaxpr_dynamic
+    jaxpr, out_avals, consts = trace_to_subjaxpr_dynamic(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 2172, in trace_to_subjaxpr_dynamic
+    ans = fun.call_wrapped(*in_tracers_)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/linear_util.py", line 188, in call_wrapped
+    ans = self.f(*args, **dict(self.params, **kwargs))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 219, in minibatch_step
+    (_, metrics), params, optimizer_state = gradient_update_fn(
+                                            ^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/brax/training/gradients.py", line 57, in f
+    value, grads = loss_and_pgrad_fn(*args)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/brax/training/gradients.py", line 29, in h
+    value, grad = g(*args, **kwargs)
+                  ^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/traceback_util.py", line 166, in reraise_with_filtered_traceback
+    return fun(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/api.py", line 720, in value_and_grad_f
+    ans, vjp_py, aux = _vjp(
+                       ^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/api.py", line 2179, in _vjp
+    out_primal, out_vjp, aux = ad.vjp(
+                               ^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/ad.py", line 141, in vjp
+    out_primals, pvals, jaxpr, consts, aux = linearize(traceable, *primals, has_aux=True)
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/ad.py", line 128, in linearize
+    jaxpr, out_pvals, consts = pe.trace_to_jaxpr_nounits(jvpfun_flat, in_pvals)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/profiler.py", line 314, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/interpreters/partial_eval.py", line 777, in trace_to_jaxpr_nounits
+    jaxpr, (out_pvals, consts, env) = fun.call_wrapped(pvals)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/linear_util.py", line 188, in call_wrapped
+    ans = self.f(*args, **dict(self.params, **kwargs))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/losses.py", line 139, in compute_ppo_loss
+    policy_logits, _ = policy_apply(
+                       ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/models.py", line 253, in apply
+    apply = policy_module.apply(
+            ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/jax/_src/traceback_util.py", line 166, in reraise_with_filtered_traceback
+    return fun(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/linen/module.py", line 1489, in apply
+    return apply(
+           ^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/core/scope.py", line 933, in wrapper
+    y = fn(root, *args, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/linen/module.py", line 2060, in scope_fn
+    return fn(module.clone(parent=scope), *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/linen/module.py", line 432, in wrapped_module_method
+    return self._call_wrapped_method(fun, args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/linen/module.py", line 864, in _call_wrapped_method
+    y = fun(self, *args, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/models.py", line 92, in __call__
+    output = PositionalEncoding(
+             ^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/linen/module.py", line 432, in wrapped_module_method
+    return self._call_wrapped_method(fun, args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/linen/module.py", line 864, in _call_wrapped_method
+    y = fun(self, *args, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/transformer/modules.py", line 28, in __call__
+    pe = self.param(
+         ^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/linen/module.py", line 1241, in param
+    v = self.scope.param(name, init_fn, *init_args, unbox=unbox)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/flax/core/scope.py", line 835, in param
+    raise errors.ScopeParamShapeError(name, self.path_text,
+jax._src.traceback_util.UnfilteredStackTrace: flax.errors.ScopeParamShapeError: Initializer expected to generate shape (9, 64) but got shape (256, 64) instead for parameter "pe" in "/PositionalEncoding_0". (https://flax.readthedocs.io/en/latest/api_reference/flax.errors.html#flax.errors.ScopeParamShapeError)
+
+The stack trace below excludes JAX-internal frames.
+The preceding is the original exception that occurred, unmodified.
+
+--------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 77, in <module>
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+    _run_main(main, args)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 74, in main
+    training_run(env_name='LowLevel', env_parameters=config, train_parameters=V2_PARAMETERS)
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/training.py", line 63, in training_run
+    make_policy, params, metrics = train_fn(
+                                   ^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 385, in train
+    training_metrics) = training_epoch_with_timing(training_state, env_state,
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 318, in training_epoch_with_timing
+    result = training_epoch(training_state, env_state, key)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 303, in training_epoch
+    (training_state, state, _), loss_metrics = jax.lax.scan(
+                                               ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 288, in training_step
+    (optimizer_state, params, _), metrics = jax.lax.scan(
+                                            ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 241, in sgd_step
+    (optimizer_state, params, _), metrics = jax.lax.scan(
+                                            ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/train.py", line 219, in minibatch_step
+    (_, metrics), params, optimizer_state = gradient_update_fn(
+                                            ^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/brax/training/gradients.py", line 57, in f
+    value, grads = loss_and_pgrad_fn(*args)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/brax/training/gradients.py", line 29, in h
+    value, grad = g(*args, **kwargs)
+                  ^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/losses.py", line 139, in compute_ppo_loss
+    policy_logits, _ = policy_apply(
+                       ^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/models.py", line 253, in apply
+    apply = policy_module.apply(
+            ^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/models.py", line 92, in __call__
+    output = PositionalEncoding(
+             ^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/transformer/modules.py", line 28, in __call__
+    pe = self.param(
+         ^^^^^^^^^^^
+flax.errors.ScopeParamShapeError: Initializer expected to generate shape (9, 64) but got shape (256, 64) instead for parameter "pe" in "/PositionalEncoding_0". (https://flax.readthedocs.io/en/latest/api_reference/flax.errors.html#flax.errors.ScopeParamShapeError)
