@@ -6,6 +6,7 @@ from brax.math import *
 from brax.base import Motion, State, System, Transform
 from brax.scan import link_types
 from brax.kinematics import inverse, world_to_joint
+from brax.envs import Env
 
 import jax
 import jax.numpy as jp
@@ -95,6 +96,7 @@ def q_spherical_to_quaternion(g: jp.ndarray, state: State, sys: System):
         return feature
     return link_types(sys, scanfunc, 'd', 'q', g)
 
+
 def world_to_egocentric(t: Transform) -> Transform:
     """Converts a transform in world frame to transform in egocentric frame.
 
@@ -106,6 +108,19 @@ def world_to_egocentric(t: Transform) -> Transform:
     """
     r = t.take(0)
     return t.vmap(in_axes=(0,None)).to_local(r)
+
+#@world_to_egocentric.register(Motion)
+def world_to_egocentric(t: Motion) -> Motion:
+    """Converts a transform in world frame to transform in egocentric frame.
+
+    Args:
+        t: transform in world frame
+
+    Returns:
+        t': transform in egocentric frame
+    """
+    r = t.take(0)
+    return t.vmap(in_axes=(0,None)).__sub__(r)
 
 def egocentric_to_world(t: Transform) -> Transform:
     """Converts a transform in egocentric frame to transform in world frame.
@@ -119,47 +134,27 @@ def egocentric_to_world(t: Transform) -> Transform:
     r = t.take(0)
     return r.vmap(in_axes=(None,0)).do(t)
 
-@functools.singledispatch
-def world_to_relative(t, sys: System, mask_root: bool = False):
-    del t, sys
-    return NotImplemented
-
-@world_to_relative.register(Transform)
-def _(t, sys: System, mask_root: bool = False) -> Transform:
-    """Converts a transform in world frame to transform in frame relative to parent link.
-
-    Args:
-        t: transform in world frame
-
-    Returns:
-        t': transform in relative frame
-    """
-    link_parents = jp.array(sys.link_parents)
+def world_to_relative(state, env):
+    
+    link_parents = jp.array(env.link_parents)
     link_parents = jp.where(link_parents == -1, 0, link_parents)
-    root = t.take(0)
-    if mask_root:
-        root_mask = Transform(jp.array([0.0, 0.0, 1.0]), jp.array([1.0, 1.0, 1.0, 1.0]))
-        root = mul(root, root_mask)
-    r = t.take(link_parents)
-    return t.vmap(in_axes=(0,0)).to_local(r).index_set(0, root)
+    
+    x = state.x
+    xd = state.xd
+    root_x = x.take(0)
+    root_xd = xd.take(0)
 
-@world_to_relative.register(Motion)
-def _(m: Motion, sys: System, mask_root: bool = False) -> Motion:
-    """Converts a transform in world frame to transform in frame relative to parent link.
+    x_link_parents = x.take(link_parents)
+    xd_link_parents = xd.take(link_parents)
 
-    Args:
-        t: transform in world frame
+    x_rel = x.vmap(in_axes=(0,0)).to_local(x_link_parents).index_set(0, root_x)
+    
+    quat = x_link_parents.rot
+    xd_rel = jax.tree_map(lambda x: jax.vmap(inv_rotate)(x, quat), xd.__sub__(xd_link_parents)).index_set(0, root_xd)
 
-    Returns:
-        t': transform in relative frame
-    """
-    link_parents = jp.array(sys.link_parents)
-    link_parents = jp.where(link_parents == -1, 0, link_parents)
-    root = m.take(0)
-    r = m.take(link_parents)
-    return m.__sub__(r).index_set(0,root)
+    return x_rel, xd_rel
 
-@jax.vmap
+
 def dist_quat(quat1, quat2):
     """Cosine angle distance between quaternions"""
     return jp.expand_dims(jp.abs(jp.dot(quat1, quat2) - 1), -1)
@@ -212,13 +207,88 @@ def goal_to_state(goal: Goal, sys: System):
     q, qd = inverse(sys, j, jd)
     return State(q, qd, x, xd, None)
 
+def dist(env: Env, x1, xd1, x2, xd2, root_dist=False):
+    dpos = x1.pos - x2.pos
+    drot = jax.vmap(dist_quat)(x1.rot, x2.rot) * env.rot_dist
+    dx = jp.concatenate([dpos, drot], axis=-1) * env.goal_x_mask
+    dxd = concatenate_attrs(xd1.__sub__(xd2) * env.goal_xd_mask)
+    s_minus_g = jp.concatenate([dx, dxd], axis=-1)
+    if env.obs_mask is not None:
+      s_minus_g = s_minus_g * env.obs_mask
+    root_dist = safe_norm(s_minus_g[0]) if root_dist else None
+    dist = safe_norm(s_minus_g) 
+    return dist, root_dist
+
+def slerp(q1, q2, t):
+    """Perform SLERP between two quaternions q1, q2 with interpolant t."""
+
+    # Compute the cosine of the angle between the two vectors.
+    dot = jp.dot(q1, q2)
+
+    # If the dot product is negative, the quaternions
+    # have opposite handed-ness and slerp won't take
+    # the shorter path. Fix by reversing one quaternion.
+    if dot < 0.0:
+        q2 = -q2
+        dot = -dot
+
+    DOT_THRESHOLD = 0.9995
+    if dot > DOT_THRESHOLD:
+        # If the inputs are too close for comfort, linearly interpolate
+        # and normalize the result.
+        result = q1 + t*(q2 - q1)
+        return result / jp.linalg.norm(result)
+
+    # Since dot is in range [0, DOT_THRESHOLD], acos is safe
+    theta_0 = safe_arccos(dot)  # theta_0 = angle between input vectors
+    theta = theta_0 * t  # theta = angle between v0 and result
+    sin_theta = jp.sin(theta)  # compute this value only once
+    sin_theta_0 = jp.sin(theta_0)  # compute this value only once
+
+    s0 = jp.cos(theta) - dot * sin_theta / sin_theta_0  # == sin(theta_0 - theta) / sin(theta_0)
+    s1 = sin_theta / sin_theta_0
+    return s0 * q1 + s1 * q2
 
 
 
 
 
+'''
+@world_to_relative.register(Transform)
+def _(t, sys: System, mask_root: bool = False) -> Transform:
+    """Converts a transform in world frame to transform in frame relative to parent link.
 
+    Args:
+        t: transform in world frame
 
+    Returns:
+        t': transform in relative frame
+    """
+    link_parents = jp.array(sys.link_parents)
+    link_parents = jp.where(link_parents == -1, 0, link_parents)
+    root = t.take(0)
+    if mask_root:
+        root_mask = Transform(jp.array([0.0, 0.0, 1.0]), jp.array([1.0, 1.0, 1.0, 1.0]))
+        root = mul(root, root_mask)
+    r = t.take(link_parents)
+    return t.vmap(in_axes=(0,0)).to_local(r).index_set(0, root)
+
+@world_to_relative.register(Motion)
+def _(m: Motion, sys: System, mask_root: bool = False) -> Motion:
+    """Converts a transform in world frame to transform in frame relative to parent link.
+
+    Args:
+        t: transform in world frame
+
+    Returns:
+        t': transform in relative frame
+    """
+    link_parents = jp.array(sys.link_parents)
+    link_parents = jp.where(link_parents == -1, 0, link_parents)
+    root = m.take(0)
+    r = m.take(link_parents)
+    return m.__sub__(r).index_set(0,root)
+'''
 
 
 

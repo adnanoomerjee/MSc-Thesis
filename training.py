@@ -2,8 +2,6 @@ import functools
 import jax
 import os
 
-from hct.training.configs import *
-
 cwd = os.getcwd()
 
 from datetime import datetime
@@ -22,20 +20,32 @@ from brax.io import json
 from brax.io import html
 
 from absl import app, logging, flags
+import importlib
+
+func = 'run.hyperparameter_sweep'
+savedir = 'runs'
+
+default = f'hct/training/hyperparam_sweeps/low_level_env_mlp/'
 
 FLAGS = flags.FLAGS
-flags.DEFINE_bool('distributed', False, 'initialise distributed.')
-flags.DEFINE_integer('config', 0, 'run config')
-logging.set_verbosity(logging.INFO)
 
-def training_run(env_name, env_parameters, train_parameters):
+flags.DEFINE_bool('distributed', False, 'initialise distributed.')
+flags.DEFINE_integer('config', 1, 'run config')
+flags.DEFINE_string('hyperparam_func_path', default, 'hyperparam_sweep_function_path')
+
+logging.set_verbosity(logging.INFO)
+jp.set_printoptions(precision=4)
+
+def training_run(env_name, env_parameters, train_parameters, variant_name, filepath):
     
     current_datetime = datetime.now().strftime("%Y-%m-%d, %H:%M:%S")
     env_parameters_name = env_parameters.copy()
     env_parameters_name.pop('architecture_configs')
-    training_run_name = f'{env_name}, {env_parameters_name}, {current_datetime}'
-    filepath = f'{cwd}/hct/training_runs_mlp/{training_run_name}/'
-    os.makedirs(os.path.dirname(filepath))
+
+    training_run_name = f'{variant_name}'
+    filepath = f'{filepath}{training_run_name}/'
+    if not os.path.exists(filepath):
+      os.makedirs(os.path.dirname(filepath))
 
     logging.get_absl_handler().use_absl_log_file('log', filepath)
 
@@ -47,7 +57,9 @@ def training_run(env_name, env_parameters, train_parameters):
         env=env,
         **train_parameters)
 
-    training_run_metrics = {}
+    training_run_metrics = {
+      'model_variant_name': training_run_name
+    }
     training_parameters = train_fn.keywords.copy()
     training_parameters.pop('environment')
     training_parameters['env_name'] = env_name
@@ -70,13 +82,25 @@ def training_run(env_name, env_parameters, train_parameters):
         policy_params_fn=save
     )
 
+def function_from_path(func_path):
+  module_path, func_name = func_path.rsplit('.', 1)
+  module = importlib.import_module(module_path)
+  func = getattr(module, func_name)
+  return func
+
 def main(argv):
   
   if FLAGS.distributed:
     jax.distributed.initialize()
-  config_int = FLAGS.config
-  config = LOW_LEVEL_ENV_PARAMETERS_MLP_4[config_int]
-  training_run(env_name='LowLevel', env_parameters=config, train_parameters=V4_MLP_PARAMETERS)
+
+  filepath = FLAGS.hyperparam_func_path
+  savepath = filepath + 'runs/'
+  hyperparam_func = filepath.replace('/','.') + func
+  config = FLAGS.config
+  hyperparam_sweep_fn = function_from_path(hyperparam_func) 
+
+  env_params, training_params = hyperparam_sweep_fn()
+  training_run(env_name='LowLevel', env_parameters=env_params[config], train_parameters=training_params[config], variant_name=f'{config}', filepath=savepath)
 
 if __name__== '__main__':
   app.run(main)

@@ -1,76 +1,95 @@
-import functools
+from hct.io.model import load
+from hct.training.acting import Evaluator
+from brax.envs.wrappers.training import AutoResetWrapper, EpisodeWrapper, VmapWrapper
+import seaborn as sns
+
 import jax
-import os
+import jax.numpy as jp
 
-from hct.training.configs import *
+import functools
 
-cwd = os.getcwd()
+from absl import app, main
 
-from datetime import datetime
-from jax import numpy as jp
-import matplotlib.pyplot as plt
+path = "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training_runs_mlp/LowLevel, {'position_goals': True, 'velocity_goals': None, 'distance_reward': 'absolute', 'goal_obs': 'concatenate'}, 2023-07-29, 16:52:30"
 
-from IPython.display import HTML, clear_output
+def aggregate(x, axis=-1):
+  mean = jp.mean(x, axis=axis)
+  std = jp.std(x, axis=axis)
+  stderr = std / jp.sqrt(x.shape[axis])
+  return {'mean': mean, 'std': std, 'stderr': stderr}
 
-from hct import training
-from hct import envs
+def testrun(
+    modelpath, 
+    seed=1,
+    num_eval_envs=128,
+    deterministic_eval=False,
+    **kwargs
+    ):
+  
+  key = jax.random.PRNGKey(seed=seed)
+  
+  training_params = load(f"{modelpath}/training_params")
 
-import flax
+  env = load(f"{modelpath}/env")
+  action_repeat = env.action_repeat
+  episode_length = env.episode_length
+  env = VmapWrapper(EpisodeWrapper(env, episode_length, action_repeat))
+  
+  network = load(f"{modelpath}/network")
+  params = load(f"{modelpath}/model_params")
+  make_inference_fn = load(f"{modelpath}/make_inference_fn")
+  
+  make_policy = functools.partial(
+      make_inference_fn(network),
+      obs_mask=env.obs_mask, 
+      action_mask=env.action_mask,
+      non_actuator_nodes=env.non_actuator_nodes,
+      deterministic=deterministic_eval
+      )
+  
+  evaluator = Evaluator(
+    eval_env=env,
+    eval_policy_fn=make_policy, 
+    num_eval_envs=num_eval_envs,
+    episode_length=episode_length, 
+    action_repeat=action_repeat, 
+    key=key,
+    extra_fields=['eval_metrics', 'goal', 'steps', 'truncation'],
+    save_state=True)
+  
+  metrics, data = evaluator.run_evaluation(params)
+  data = jax.tree_util.tree_map(lambda x: jp.swapaxes(x, 0, 1), data)
 
-from hct.io import model
-from brax.io import json
-from brax.io import html
+  state_extras = data.extras['state_extras']
 
-from absl import app, logging, flags
+  episode_metrics = {
+      f'eval/episode_{name}': value for name, value 
+      in state_extras['eval_metrics'].episode_metrics.items()
+  }
+  episode_metrics.update(
+      truncation=state_extras['truncation'])
 
-FLAGS = flags.FLAGS
-flags.DEFINE_bool('distribute', True, 'initialise distribute.')
-logging.set_verbosity(logging.INFO)
+  ordered_goal_difficulty = jp.argsort(episode_metrics['eval/episode_goal_distance_world_frame'][:, -1], axis=0)
 
-def testing_run(env_name, make_policy, model_params):
-    
-    current_datetime = datetime.now().strftime("%Y-%m-%d, %H:%M:%S")
-    training_run_name = f'{env_name}, {env_parameters}, {current_datetime}'
-    filepath = f'{cwd}/hct/training_runs/{training_run_name}/'
-    os.makedirs(os.path.dirname(filepath))
+  goals = jax.tree_map(lambda x: x[ordered_goal_difficulty, -1, ...], 
+                      state_extras['goal'])
 
-    logging.get_absl_handler().use_absl_log_file('log', filepath)
+  rollouts = jax.tree_map(lambda x: x[ordered_goal_difficulty, ...], 
+                      state_extras['state'])
 
-    env = envs.get_environment(
-        env_name=env_name,
-        **env_parameters)
-    
-    train_fn = training.get_train_fn(
-        env=env,
-        **train_parameters)
+  episode_metrics = jax.tree_map(lambda x: aggregate(x), episode_metrics)
 
-    training_run_metrics = {}
-    training_parameters = env.parameters | train_fn.keywords
-    training_parameters.pop('environment')
-    training_parameters['env name'] = env_name
 
-    model.save(obj=training_parameters, path=f'{filepath}/training_params')
+  steps = state_extras['steps'][0,:]
+  episode_metrics = jax.tree_map(lambda x: aggregate(x), episode_metrics)
 
-    def progress(num_steps, metrics):
-      training_run_metrics.update({str(num_steps): metrics})
-
-    def save(current_step, make_policy, params):
-      model.save(obj=training_run_metrics, path=f'{filepath}/training_metrics')
-      model.save(obj=params, path=f'{filepath}/model_params')
-      model.save(obj=make_policy, path=f'{filepath}/make_policy')
-      
-    make_policy, params, metrics = train_fn(
-        progress_fn=progress, 
-        policy_params_fn=save
-    )
-
-def main(argv):
-
-  if FLAGS.distribute:
-    jax.distributed.initialize()
-
-  for config in LOW_LEVEL_ENV_PARAMETERS:
-    training_run(env_name='LowLevel', env_parameters=config, train_parameters={})
+  return {
+    'steps': steps,
+    'episode_metrics': episode_metrics,
+    'final_metrics': metrics,
+    'rollouts': rollouts,
+    'goals': goals
+  }
 
 if __name__== '__main__':
   app.run(main)

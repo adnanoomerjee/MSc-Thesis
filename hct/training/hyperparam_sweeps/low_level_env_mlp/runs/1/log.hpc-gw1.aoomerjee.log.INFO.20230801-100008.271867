@@ -1,0 +1,5 @@
+I0801 10:00:08.252065 140686580565824 low_level_env.py:192] Initialising environment...
+I0801 10:00:08.371852 140686580565824 low_level_env.py:307] Environment initialised.
+I0801 10:00:08.390121 140686580565824 train.py:117] JAX is not running on GPU.
+I0801 10:00:08.390349 140686580565824 train.py:118] Device count: 1, process count: 1 (id 0), local device count: 1, devices to be used count: 1
+I0801 10:00:19.371917 140686580565824 train.py:367] Running initial eval

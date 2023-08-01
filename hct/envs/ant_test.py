@@ -16,6 +16,7 @@
 """Trains an ant to run in the +x direction."""
 #import sys
 #sys.path.insert(0, "/nfs/nhome/live/aoomerjee/MSc-Thesis/")
+import os
 
 from brax import base
 from brax import math
@@ -27,6 +28,7 @@ import jax
 from jax import numpy as jp
 
 from hct.envs.tools import world_to_relative, safe_norm, concatenate_attrs, dist_quat, quaternion_to_spherical
+from hct.io import model
 
 from typing import Literal
 
@@ -284,6 +286,11 @@ class AntTest(PipelineEnv):
   
   def test_rollout(self):
 
+    filename = '/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/envs/ranges/test_rollout'
+
+    if os.path.isfile(filename):
+      return model.load(filename)
+
     jit_env_reset = jax.jit(self.reset)
     jit_env_step = jax.jit(self.step)
     jit_move_limbs = jax.jit(self.move_limbs)
@@ -315,7 +322,11 @@ class AntTest(PipelineEnv):
           state = jit_env_step(state, act)
           rollout.append(state.pipeline_state)
 
-    return rollout, html.render(self.sys.replace(dt=self.dt), rollout)
+    output = (rollout, html.render(self.sys.replace(dt=self.dt), rollout))
+
+    model.save(filename, output)
+
+    return output
 
 
 

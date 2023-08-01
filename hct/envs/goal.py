@@ -5,6 +5,7 @@ import jax
 from jax import numpy as jp
 
 from flax import struct
+from typing import Optional
 
 
 @struct.dataclass
@@ -18,13 +19,13 @@ class Goal(base.Base):
       xd_world: velocity in world frame 
       xd_rel: velocity in frame relative to parents
   """
-  g: jp.ndarray
   q: jp.ndarray
   qd: jp.ndarray
-  x_world: base.Transform
+  x: base.Transform
+  xd: base.Motion
   x_rel: base.Transform
-  xd_world: base.Motion
   xd_rel: base.Motion
+  contact: Optional[jp.ndarray] = None
 
 
 

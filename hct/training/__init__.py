@@ -1,15 +1,11 @@
 
-import functools
-
 from hct.training import train as ppo
-
+import functools
 from brax.envs.base import Env
 
 """Default training configurations"""
 train_fn = functools.partial(ppo.train,  
     num_timesteps=50_000_000, 
-    episode_length=1000, 
-    action_repeat=1, 
     num_envs=2048, 
     max_devices_per_host=None,
     learning_rate=3e-4, 

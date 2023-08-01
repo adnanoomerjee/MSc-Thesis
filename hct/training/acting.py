@@ -38,12 +38,18 @@ def actor_step(
     env_state: State,
     policy: Policy,
     key: PRNGKey,
+    save_state: bool = False,
     extra_fields: Sequence[str] = ()
 ) -> Tuple[State, Transition]:
   """Collect data."""
   actions, policy_extras = policy(env_state.obs, key)
   nstate = env.step(env_state, actions)
   state_extras = {x: nstate.info[x] for x in extra_fields}
+  if save_state:
+    running_state = jax.tree_map(lambda x, y: jp.stack([x, y]), 
+                                 env_state.info['state'], 
+                                 nstate.pipeline_state)
+    state_extras.update(state=running_state)  
   return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
       observation=env_state.obs,
       action=actions,
@@ -62,16 +68,19 @@ def generate_unroll(
     policy: Policy,
     key: PRNGKey,
     unroll_length: int,
-    extra_fields: Sequence[str] = ()
+    extra_fields: Sequence[str] = (),
+    save_state: bool = False
 ) -> Tuple[State, Transition]:
   """Collect trajectories of given unroll_length."""
 
   @jax.jit
   def f(carry, unused_t):
     state, current_key = carry
+    if save_state:
+      state.update(state=state.pipeline_state)
     current_key, next_key = jax.random.split(current_key)
     nstate, transition = actor_step(
-        env, state, policy, current_key, extra_fields=extra_fields)
+        env, state, policy, current_key, extra_fields=extra_fields, save_state=save_state)
     return (nstate, next_key), transition
 
   (final_state, _), data = jax.lax.scan(
@@ -83,10 +92,15 @@ def generate_unroll(
 class Evaluator:
   """Class to run evaluations."""
 
-  def __init__(self, eval_env: envs.Env,
-               eval_policy_fn: Callable[[PolicyParams],
-                                        Policy], num_eval_envs: int,
-               episode_length: int, action_repeat: int, key: PRNGKey):
+  def __init__(self, 
+               eval_env: envs.Env,
+               eval_policy_fn: Callable[[PolicyParams], Policy], 
+               num_eval_envs: int,
+               episode_length: int, 
+               action_repeat: int, 
+               key: PRNGKey,
+               extra_fields: Sequence[str] = (),
+               save_state: bool = False):
     """Init.
 
     Args:
@@ -99,6 +113,7 @@ class Evaluator:
     """
     self._key = key
     self._eval_walltime = 0.
+    self._num_eval_envs = num_eval_envs
 
     eval_env = EvalWrapper(eval_env)
 
@@ -111,25 +126,30 @@ class Evaluator:
           eval_first_state,
           eval_policy_fn(policy_params),
           key,
-          unroll_length=episode_length // action_repeat)[0]
+          unroll_length=episode_length // action_repeat,
+          extra_fields=extra_fields,
+          save_state=save_state)
 
     self._generate_eval_unroll = jax.jit(generate_eval_unroll)
     self._steps_per_unroll = episode_length * num_eval_envs
 
   def run_evaluation(self,
                      policy_params: PolicyParams,
-                     training_metrics: Metrics,
+                     training_metrics: Metrics = {},
                      aggregate_episodes: bool = True) -> Metrics:
     """Run one epoch of evaluation."""
     self._key, unroll_key = jax.random.split(self._key)
 
     t = time.time()
-    eval_state = self._generate_eval_unroll(policy_params, unroll_key)
+    eval_state, data = self._generate_eval_unroll(policy_params, unroll_key)
     eval_metrics = eval_state.info['eval_metrics']
     eval_metrics.active_episodes.block_until_ready()
     epoch_eval_time = time.time() - t
     metrics = {
-        f'eval/episode_{name}': jp.array([jp.mean(value).item(), jp.std(value).item()]) if aggregate_episodes else value
+        f'eval/episode_{name}': {
+           'mean': jp.mean(value).item(), 
+           'std': jp.std(value).item(), 
+           'stderr' :jp.std(value).item()/self._num_eval_envs} if aggregate_episodes else value
         for name, value in eval_metrics.episode_metrics.items()
     }
     metrics['eval/avg_episode_length'] = jp.array([jp.mean(eval_metrics.episode_steps).item(), jp.std(eval_metrics.episode_steps).item()])
@@ -142,4 +162,4 @@ class Evaluator:
         **metrics
     }
 
-    return metrics  # pytype: disable=bad-return-type  # jax-ndarray
+    return metrics, data  # pytype: disable=bad-return-type  # jax-ndarray

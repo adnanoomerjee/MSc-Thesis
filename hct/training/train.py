@@ -74,8 +74,6 @@ def _strip_weak_type(tree):
 
 def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           num_timesteps: int, # Number of timesteps to train
-          episode_length: int, # Episode length
-          action_repeat: int = 1, # Number of env steps where action repeats
           num_envs: int = 1, 
           max_devices_per_host: Optional[int] = None,
           num_eval_envs: int = 128,
@@ -106,7 +104,6 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   assert batch_size * num_minibatches % num_envs == 0
   xt = time.time()
 
-
   # Devices and processes setup
   process_count = jax.process_count() # no. of jax processes in backend
   process_id = jax.process_index() # Returns the integer process index of this process.
@@ -124,6 +121,9 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       process_id, local_device_count, local_devices_to_use)
   device_count = local_devices_to_use * process_count
 
+  env = environment
+  episode_length = env.episode_length
+  action_repeat = env.action_repeat
 
   # Number of environment steps executed for every training step.
   env_step_per_training_step = (
@@ -154,7 +154,6 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       # 2. Wraps with wrap.VmapWrapper, vectorising resets and steps using vmap.
       # 3. Wraps with wrap.AutoResetWrapper, automatically resetting environment when episode is done.
   assert num_envs % device_count == 0
-  env = environment
 
   env = wrap_for_training(
       env, episode_length=episode_length, action_repeat=action_repeat)
@@ -354,6 +353,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   evaluator = acting.Evaluator(
       eval_env,
       functools.partial(make_policy, 
+                        train=False,
                         obs_mask=env.obs_mask, 
                         action_mask=env.action_mask,
                         non_actuator_nodes=env.non_actuator_nodes,
@@ -366,7 +366,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   # Run initial eval
   logging.info('Running initial eval')
   if process_id == 0 and num_evals > 1:
-    metrics = evaluator.run_evaluation(
+    metrics, data = evaluator.run_evaluation(
         _unpmap(
             (training_state.normalizer_params, training_state.params.policy)),
         training_metrics={})
@@ -376,7 +376,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   training_walltime = 0
   current_step = 0
   for it in range(num_evals_after_init):
-    logging.info('starting iteration %s, %s steps, %s', it, current_step, time.time() - xt)
+    logging.info('starting iteration %s/%s, %s steps, %s', it + 1, num_evals_after_init, current_step, time.time() - xt)
 
     # optimization
     epoch_key, local_key = jax.random.split(local_key)
@@ -387,7 +387,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
     current_step = int(_unpmap(training_state.env_steps))
     if process_id == 0:
       # Run evals.
-      metrics = evaluator.run_evaluation(
+      metrics, data = evaluator.run_evaluation(
           _unpmap(
               (training_state.normalizer_params, training_state.params.policy)),
           training_metrics)
@@ -397,7 +397,9 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           (training_state.normalizer_params, training_state.params.policy))
       
       if not (it*10 % (num_evals_after_init*10//10)) or it == num_evals_after_init-1:
+        savetime = time.time()
         policy_params_fn(current_step, make_policy, params, make_inference_fn, ppo_network)
+        logging.info('saving model, time to save: %s', time.time() - savetime)
 
   total_steps = current_step
   assert total_steps >= num_timesteps

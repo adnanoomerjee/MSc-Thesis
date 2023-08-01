@@ -164,22 +164,23 @@ class LowLevelEnv(PipelineEnv):
     goal_root_pos_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-0.25, 0.45]]),
     goal_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi], [-jp.pi,jp.pi]]),
     goal_root_vel_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-5, 5]]),
-    goal_root_ang_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-5, 5]]),
+    goal_root_ang_range: jp.ndarray = jp.array([[-5,5], [-5,5], [-10, 10]]),
     goalsampler_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi/12], [-jp.pi,jp.pi]]),
     obs_mask: Optional[jp.ndarray] = None,
     distance_reward: Literal['difference', 'absolute'] = 'absolute',
     terminate_when_unhealthy=False,
     terminate_when_goal_reached=True,
     unhealthy_cost=0, # trial 0, -1.0, current best 0
-    healthy_z_range=(0.255, 2.0),
+    healthy_z_range=(0.255, 10),
+    air_probability=0.1, # trial 0.1, 0.2, 0.3, current best 0.1
     goal_distance_epsilon = 0.01, # current best 0.01
     reset_noise_scale=0.1,
-    rot_dist=True, #trial, current best True
+    rot_dist=True,
     backend='positional',
-    architecture_name='Transformer',
-    architecture_configs = DEFAULT_MLP_CONFIGS, # trial larger network
-    ctrl_cost=0.0, # trial 0, 0.5, current best 0
-    reward_goal_reached=50, # trial 0, 50, 100, 500, current best 50
+    architecture_name='MLP',
+    architecture_configs=DEFAULT_MLP_CONFIGS, # trial larger network
+    ctrl_cost=0.0, # 
+    reward_goal_reached=50, # trial 0, 50, 100, 
     **kwargs
   ):
 
@@ -213,6 +214,7 @@ class LowLevelEnv(PipelineEnv):
     # Agent attributes
     self.dof = jp.array(self.sys.dof.limit).T.shape[0]
     self.num_links = sys.num_links()
+    self.link_parents = sys.link_parents
 
     # Reward attributes
     self.distance_reward = distance_reward
@@ -261,26 +263,29 @@ class LowLevelEnv(PipelineEnv):
     else:
         assert self.position_goals, "Cannot only specify root_velocity_goals"
 
-    self.limb_ranges = self._get_limb_ranges()
-    self.max_goal_dist = self.limb_ranges['max_dist']
-    self.max_root_goal_dist = self.limb_ranges['max_root_dist']
-
-    # Goal sampling attributes
-    if morphology == 'ant':
-        self.end_effector_idx = [2,4,6,8]
-        self.goal_z_cond = jp.array([0.078, 1.6]) if backend == 'generalized' else jp.array([0.08, 1.6])
-        self.goal_polar_cond = jp.pi/12
-        self.goal_contact_cond = 0.09
-
-    goalsampler_q_limit = jp.array(self.sys.dof.limit).T.at[0:3].set(self.goal_root_pos_range).at[3:6].set(goalsampler_root_rot_range)
-    goalsampler_qd_limit = self.limb_ranges['goalsampler_qd_limit']
-    self.goalsampler_limit = jp.concatenate([goalsampler_q_limit, goalsampler_qd_limit])
-
     # Training attributes
     self.obs_mask = obs_mask
     self.non_actuator_nodes = 0 if not self.goal_nodes else jp.array([0] + [i for i in range(9, 18)])
     self.action_mask = None
     self.num_nodes = 9
+
+    self.limb_ranges = self._get_limb_ranges()
+    self.max_goal_dist = self.limb_ranges['max_dist']
+    self.max_root_goal_dist = self.limb_ranges['max_root_dist']
+    self.pos_range = self.limb_ranges['pos_range']
+    self.rot_range = self.limb_ranges['rot_range']
+    self.vel_range_range = self.limb_ranges['vel_range']
+    self.ang_range = self.limb_ranges['ang_range']
+
+    # Goal sampling attributes
+    self.goal_z_cond = jp.array([0.078, 1.6]) if backend == 'generalized' else jp.array([0.08, 1.6])
+    self.goal_polar_cond = jp.pi/12
+    self.goal_contact_cond = 0.09
+    self.air_probability = jp.array([1-air_probability, air_probability])
+
+    goalsampler_q_limit = jp.array(self.sys.dof.limit).T.at[0:3].set(self.goal_root_pos_range).at[3:6].set(goalsampler_root_rot_range)
+    goalsampler_qd_limit = self.limb_ranges['goalsampler_qd_limit']
+    self.goalsampler_limit = jp.concatenate([goalsampler_q_limit, goalsampler_qd_limit])
 
     # Network architecture
     self.network_architecture = NetworkArchitecture.create(name=architecture_name, **architecture_configs)
@@ -288,12 +293,16 @@ class LowLevelEnv(PipelineEnv):
     self.max_actions_per_node = 1 if self.network_architecture.name=='Transformer' else 8
 
     # Observation attributes
+    self.root_mask = base.Transform(jp.array([0.0, 0.0, 1.0]), jp.array([1.0, 1.0, 1.0, 1.0]))
     self.state_obs_width = 13
     concat_obs_width = self.state_obs_width + self.goal_obs_width
     if concat_obs_width % num_attn_heads != 0:
         self.concat_obs_width = ((concat_obs_width // num_attn_heads) + 1) * num_attn_heads
     else:
         self.concat_obs_width = concat_obs_width
+
+    self.action_repeat = 1
+    self.episode_length = 1000
 
     logging.info('Environment initialised.')
 
@@ -309,13 +318,14 @@ class LowLevelEnv(PipelineEnv):
     )
 
     qd = hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+
     pipeline_state = self.pipeline_init(q, qd)
 
     # Sample and set goal
     goal = self._sample_goal(rng3, pipeline_state)
-    goal_distance = self.goal_dist(pipeline_state, goal, frame = 'relative')/self.max_goal_dist
-    goal_distance_root = self.root_goal_dist(pipeline_state, goal, rot_dist=self.rot_dist)/self.max_root_goal_dist
-    goal_distance_world = self.goal_dist(pipeline_state, goal, frame = 'world')
+    goal_distance, goal_distance_root = self.goal_dist(pipeline_state, goal, frame='relative', root_dist=True)
+    goal_distance = goal_distance/self.max_goal_dist
+    goal_distance_world, _ = self.goal_dist(pipeline_state, goal, frame='world', root_dist=False)
 
     # Get observation
     obs = self.get_obs(pipeline_state, goal)
@@ -348,6 +358,7 @@ class LowLevelEnv(PipelineEnv):
       action = jp.squeeze(action, axis=-1) 
 
     goal = state.info['goal']
+    prev_goal_distance_world = state.metrics['goal_distance_world_frame']
 
     # Take action
     prev_pipeline_state = state.pipeline_state
@@ -361,21 +372,22 @@ class LowLevelEnv(PipelineEnv):
     )
 
     # Compute goal distance
-    goal_distance = self.goal_dist(pipeline_state, goal, frame = 'relative')/self.max_goal_dist
-    goal_distance_root = self.root_goal_dist(pipeline_state, goal, rot_dist=self.rot_dist)/self.max_root_goal_dist
-    goal_distance_world = self.goal_dist(pipeline_state, goal, frame='world', rot_dist=self.rot_dist) 
+    goal_distance, goal_distance_root = self.goal_dist(pipeline_state, goal, frame='relative', root_dist=True)
+    goal_distance = goal_distance/self.max_goal_dist
+    goal_distance_world, _ = self.goal_dist(pipeline_state, goal, frame='world', root_dist=False)
 
     # Check if goal reached
     goal_reached = jp.where(
       goal_distance <= self.goal_distance_epsilon, x=1.0, y=0.0
     )
 
-    # Compute rewards: R = ||s-g|| - ||s'-g||
-    reward = self._get_intrinsic_reward(
-      previous_state=prev_pipeline_state, 
-      current_state=pipeline_state,
-      goal=goal
-    ) - self.ctrl_cost * jp.sum(jp.square(action)) + self.reward_goal_reached * goal_reached - is_unhealthy * self.unhealthy_cost
+    # Compute rewards: 
+    if self.distance_reward == 'absolute':
+      reward = -goal_distance_world
+    else:
+      reward = prev_goal_distance_world - goal_distance_world
+      
+    reward += -self.ctrl_cost * jp.sum(jp.square(action)) + self.reward_goal_reached * goal_reached - is_unhealthy * self.unhealthy_cost
 
     # Compute state observation
     obs = self.get_obs(pipeline_state, goal)
@@ -395,55 +407,7 @@ class LowLevelEnv(PipelineEnv):
     return state.replace(
       pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
     )
-  
-  def test(self, iterations):
-
-    reset_states = []
-    step_states = []
-    reset_times = []
-
-    rng = jax.random.PRNGKey(0)
-    rng, rng1, rng2 = jax.random.split(rng, 3)
-
-    action = jax.random.uniform(rng1, shape=(self.sys.act_size(), 1), minval=-1, maxval=1)
-
-    jit_reset = jax.jit(self.reset)
-    jit_step = jax.jit(self.step)
-
-    reset_state, reset_time = timeit(jit_reset, rng2)
-    step_state, step_time = timeit(jit_step, reset_state, action)
-
-    time_to_jit_reset = reset_time
-    time_to_jit_step = step_time
-
-    time_to_call_reset = 0
-    time_to_call_step = 0
-
-    for i in range(iterations):
-
-      rng, rng1, rng2= jax.random.split(rng, 3)
-
-      action = jax.random.uniform(rng1, shape=(self.sys.act_size(), 1), minval=-1, maxval=1)
-
-      reset_state, reset_time = timeit(jit_reset, rng2)
-      step_state, step_time = timeit(jit_step, reset_state, action)
-      
-      time_to_call_reset += reset_time/iterations
-      time_to_call_step += step_time/iterations
-
-      reset_states.append(reset_state)
-      step_states.append(step_state)
-
-      reset_times.append(reset_time)
-      
-    print(f"Time to JIT 'reset': {time_to_jit_reset} seconds")
-    print(f"Time to JIT 'step': {time_to_jit_step} seconds")
-    print(f"Time to call 'reset' after JIT compilation: {time_to_call_reset} seconds")
-    print(f"Time to call 'step' after JIT compilation: {time_to_call_step} seconds")
-
-    return jit_reset, jit_step, reset_states, step_states, reset_times
     
-
   def get_obs(self, state: base.State, goal: Goal) -> jp.ndarray:
     """
     Processes a state and goal into observation format
@@ -456,29 +420,34 @@ class LowLevelEnv(PipelineEnv):
     Returns:
         obs: (num_links, 13 + goal_size) array containing goal observations:
     """
-    def _get_obs_x(state: Union[base.State, Goal]):
+
+    def _mask_root(x):
+      root_x = x.take(0)
+      root_x = mul(root_x, self.root_mask)
+      return x.index_set(0, root_x)
+    
+    def _get_state_obs(state: Union[base.State, Goal]):
       """Returns world root position (masking XY position) and limb position relative to parent"""
-      return world_to_relative(state.x, self.sys, mask_root = True)
+      return self._world_to_relative(state)
     
-    def _get_obs_gx(goal: Goal, state: base.State):
-      """Returns world root position and egocentric limb position"""
-      state_x = world_to_relative(state.x, self.sys)
-      goal_x = goal.x_rel
-      return goal_x.vmap(in_axes = (0, 0)).to_local(state_x) * self.goal_x_mask
-    
-    def _get_obs_xd(state: Union[base.State, Goal]):
-      """Returns world root velocity and egocentric limb velocity"""
-      return world_to_relative(state.xd, self.sys)
-    
-    def _get_obs_gxd(goal: Goal, sxd: base.State):
-      """Returns world root velocity and egocentric limb velocity"""
-      return goal.xd_rel.__sub__(sxd) * self.goal_xd_mask
+    def _get_goal_obs(goal: Goal, sx: base.Transform, sxd: base.Motion):
+      """Returns world root pos/vel and relative limb pos/vel"""
+      if self.position_goals:
+        gx = goal.x_rel.vmap(in_axes = (0, 0)).to_local(sx) * self.goal_x_mask
+        gx = concatenate_attrs(gx)
+      else:
+        gx = jp.empty((self.num_links, 0))
+      if self.velocity_goals:
+        gxd = jax.tree_map(lambda x: jax.vmap(inv_rotate)(x, sx.rot), goal.xd_rel.__sub__(sxd)) * self.goal_xd_mask 
+        gxd = concatenate_attrs(gxd)
+      else:
+        gxd = jp.empty((self.num_links, 0))
+      return gx, gxd
           
-    sx = concatenate_attrs(_get_obs_x(state))
-    sxd = _get_obs_xd(state)
-    gx = concatenate_attrs(_get_obs_gx(goal, state)) if self.position_goals else jp.empty((self.num_links, 0))
-    gxd = concatenate_attrs(_get_obs_gxd(goal, sxd)) if self.velocity_goals else jp.empty((self.num_links, 0))
-    sxd = concatenate_attrs(sxd)
+    sx, sxd =  _get_state_obs(state)
+    gx, gxd =  _get_goal_obs(goal, sx, sxd)
+
+    sx, sxd = concatenate_attrs(_mask_root(sx)), concatenate_attrs(sxd)
 
     s_obs = jp.concatenate([sx, sxd], axis = -1)
     g_obs = jp.concatenate([gx, gxd], axis = -1)
@@ -494,35 +463,11 @@ class LowLevelEnv(PipelineEnv):
 
     if self.network_architecture.name == 'MLP':
       obs = obs.reshape(*obs.shape[:-2], -1)
+
     return obs
-
-
-  def _get_intrinsic_reward(self, previous_state: State, current_state: State, goal: Goal) -> float:
-    def difference_reward():
-      prev_goal_distance= self.goal_dist(previous_state, goal, frame = 'world', rot_dist=self.rot_dist)
-      current_goal_distance = self.goal_dist(current_state, goal, frame = 'world', rot_dist=self.rot_dist)
-      return prev_goal_distance - current_goal_distance  
-    def absolute_reward():
-      current_goal_distance = self.goal_dist(current_state, goal, frame = 'world', rot_dist=self.rot_dist)
-      return -current_goal_distance
-    return jax.lax.cond(
-       self.distance_reward == 'difference',
-       difference_reward,
-       absolute_reward)
   
-  def root_goal_dist(self, state: base.State, goal: Goal, rot_dist=True):
-    state_x = state.x.take(0)
-    state_xd = state.xd.take(0)
-    goal_x = goal.x_world.take(0)
-    goal_xd = goal.xd_world.take(0)
-    rpos = state_x.pos - goal_x.pos
-    rrot = dist_quat(state_x.rot, goal_x.rot) * rot_dist
-    rx = concatenate_attrs(base.Transform(rpos, rrot) * self.goal_x_mask)
-    rxd = concatenate_attrs(state_xd.__sub__(goal_xd) * self.goal_xd_mask)
-    s_minus_g = jp.concatenate([rx, rxd], axis=-1)
-    return safe_norm(s_minus_g)
 
-  def goal_dist(self, state: base.State, goal: Goal, frame: Literal['world', 'relative'], rot_dist=True):
+  def goal_dist(self, state: base.State, goal: Goal, frame: Literal['world', 'relative'], root_dist=False):
     """
     Computes distance d(s,g) between state and goal in world frame, 
     accounting for quaternion double cover.
@@ -532,21 +477,15 @@ class LowLevelEnv(PipelineEnv):
     if frame == 'world':
       state_x = state.x
       state_xd = state.xd 
-      goal_x = goal.x_world
-      goal_xd = goal.xd_world
+      goal_x = goal.x
+      goal_xd = goal.xd
     else:
-      state_x = world_to_relative(state.x, self.sys)
-      state_xd = world_to_relative(state.xd, self.sys)
+      state_x, state_xd = self._world_to_relative(state)
       goal_x = goal.x_rel
       goal_xd = goal.xd_rel
 
-    dpos = state_x.pos - goal_x.pos
-    drot = dist_quat(state_x.rot, goal_x.rot) * rot_dist
-    dx = jp.concatenate([dpos, drot]) * self.goal_x_mask
-    dxd = concatenate_attrs(state_xd.__sub__(goal_xd) * self.goal_xd_mask)
-    s_minus_g = jp.concatenate([dx, dxd], axis=-1)
-    return safe_norm(s_minus_g)
-  
+    return dist(self, state_x, state_xd, goal_x, goal_xd, root_dist) 
+
   
   def _sample_goal(self, rng: jp.ndarray, state: base.State):
     """
@@ -583,15 +522,32 @@ class LowLevelEnv(PipelineEnv):
     z = z + jax.random.choice(rng1, jp.array([0, 1]), p=self.air_probability) * jax.random.uniform(rng2, minval=0, maxval=self.goal_z_cond[1] - z[0])
 
     q = q.at[2].set(z[0])
-    x_world, xd_world = forward(self.sys, q, qd)
-    x_world, xd_world = x_world * self.goal_x_mask, xd_world * self.goal_xd_mask
-    x_rel, xd_rel = world_to_relative(x_world, self.sys), world_to_relative(xd_world, self.sys)
-    x_rel, xd_rel = x_rel * self.goal_x_mask, xd_rel * self.goal_xd_mask   
+    x, xd = forward(self.sys, q, qd)
+    goal_state = base.State(q, qd, x, xd, None)
+    x_rel, xd_rel = self._world_to_relative(goal_state) 
 
-    return Goal(g, q, qd, x_world, x_rel, xd_world, xd_rel)
+    return Goal(q, qd, x, xd, x_rel, xd_rel)
+  
   
   def _get_limb_ranges(self):
-    filename = '/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/envs/lowlevelranges'
+
+    filepath = '/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/envs/ranges/'
+
+    env = 'Low level'
+
+    if self.root_velocity_goals:
+      velocity_goals = 'root'
+    elif self.full_velocity_goals:
+      velocity_goals = 'full'
+    else:
+      velocity_goals = 'False'
+    
+    position_goals = str(self.position_goals)
+    rot_dist = str(self.rot_dist)
+
+    variant = f'{env}, {position_goals}, {velocity_goals}, {rot_dist}'
+    
+    filename = f'{filepath}/{variant}'
     
     if os.path.isfile(filename):
       return model.load(filename)
@@ -600,8 +556,9 @@ class LowLevelEnv(PipelineEnv):
 
     test_rollout, _ = AntTest().test_rollout()
 
-    rollout_rel_x = [world_to_relative(state.x, self.sys) for state in test_rollout]
-    rollout_rel_xd = [world_to_relative(state.xd, self.sys) for state in test_rollout]
+    rollout_rel = [self._world_to_relative(state) for state in test_rollout]
+    rollout_rel_x = [t[0] for t in rollout_rel]
+    rollout_rel_xd = [t[1] for t in rollout_rel]
 
     rollout_rel_pos = jp.stack([x.pos for x in rollout_rel_x])
     rollout_rel_rot = {
@@ -637,26 +594,25 @@ class LowLevelEnv(PipelineEnv):
     xd_min = base.Motion(vel_ranges[0], ang_ranges[0])
     xd_max = base.Motion(vel_ranges[1], ang_ranges[1])
 
-    dpos = x_max.pos - x_min.pos
-    drot = dist_quat(x_max.rot, x_min.rot)
-    dx = jp.concatenate([dpos, drot]) * self.goal_x_mask
-    dxd = concatenate_attrs(xd_max.__sub__(xd_min) * self.goal_xd_mask)
-    s_minus_g = jp.concatenate([dx, dxd], axis=-1)
-    max_dist = safe_norm(s_minus_g)
-    max_root_dist = safe_norm(s_minus_g[0])
+
+    max_dist, max_root_dist = dist(self, x_min, xd_min, x_max, xd_max, root_dist=True)
 
     return_dict = {
       'max_dist': max_dist,
       'max_root_dist': max_root_dist,
-      'pos_ranges': pos_ranges, 
-      'rot_ranges': rot_ranges, 
-      'vel_ranges': vel_ranges, 
-      'ang_ranges': ang_ranges, 
+      'pos_range': pos_ranges, 
+      'rot_range': rot_ranges, 
+      'vel_range': vel_ranges, 
+      'ang_range': ang_ranges, 
       'goalsampler_qd_limit': goalsampler_qd_limit,
     }
 
     model.save(filename, return_dict)
     return return_dict
+  
+  def _world_to_relative(self, state: base.State):
+    return world_to_relative(state, self)
+  
 
 
       
@@ -801,4 +757,6 @@ def _sample_goal(self, rng: jp.ndarray, state: base.State):
     x_rel, xd_rel = x_rel * self.goal_x_mask, xd_rel * self.goal_xd_mask   
 
     return Goal(g, q, qd, x_world, x_rel, xd_world, xd_rel)
+
+    
 '''

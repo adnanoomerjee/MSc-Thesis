@@ -5,8 +5,8 @@
 #SBATCH --partition=fast
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:2
-#SBATCH --priority=2764
-
+#SBATCH --nodelist=gpu-erlich01
+#SBATCH --exclusive
 
 source ~/.bashrc
 conda activate msc-thesis-hpc
