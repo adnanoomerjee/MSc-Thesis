@@ -161,6 +161,7 @@ class LowLevelEnv(PipelineEnv):
     goal_obs: Literal['concatenate', 'node'] = 'concatenate',
     position_goals: bool = True,
     velocity_goals: Literal[None, 'root', 'full'] = None, 
+    goal_root_pos_masked = False,
     goal_root_pos_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-0.25, 0.45]]),
     goal_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi], [-jp.pi,jp.pi]]),
     goal_root_vel_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-5, 5]]),
@@ -172,14 +173,14 @@ class LowLevelEnv(PipelineEnv):
     terminate_when_goal_reached=True,
     unhealthy_cost=0, # trial 0, -1.0, current best 0
     healthy_z_range=(0.255, 10),
-    air_probability=0.1, # trial 0.1, 0.2, 0.3, current best 0.1
-    goal_distance_epsilon = 0.01, # current best 0.01
+    air_probability=0.1, # trial 0.1, 0.3, current best 0.1
+    goal_distance_epsilon = 0.01, 
     reset_noise_scale=0.1,
     rot_dist=True,
     backend='positional',
     architecture_name='MLP',
     architecture_configs=DEFAULT_MLP_CONFIGS, # trial larger network
-    ctrl_cost=0.0, # 
+    ctrl_cost=0.0, 
     reward_goal_reached=50, # trial 0, 50, 100, 
     **kwargs
   ):
@@ -243,6 +244,7 @@ class LowLevelEnv(PipelineEnv):
     self.goal_root_rot_range = goal_root_rot_range
     self.goal_root_vel_range = goal_root_vel_range
     self.goal_root_ang_range = goal_root_ang_range
+    self.goal_root_pos_masked  = goal_root_pos_masked 
 
     if self.position_goals and self.full_velocity_goals:
         self.goal_x_mask = 1
@@ -262,6 +264,9 @@ class LowLevelEnv(PipelineEnv):
         self.goal_obs_width = 6
     else:
         assert self.position_goals, "Cannot only specify root_velocity_goals"
+    
+    if goal_root_pos_masked:
+        self.goal_x_mask = jp.ones((self.num_links,1)).at[0,0].set(0)
 
     # Training attributes
     self.obs_mask = obs_mask
@@ -303,6 +308,7 @@ class LowLevelEnv(PipelineEnv):
 
     self.action_repeat = 1
     self.episode_length = 1000
+    self.action_shape = (8, 1)
 
     logging.info('Environment initialised.')
 
@@ -340,7 +346,7 @@ class LowLevelEnv(PipelineEnv):
       'reward': reward,
       'goal_distance_relative_frame_normalised': goal_distance,
       'goal_distance_world_frame': goal_distance_world,
-      'goal_distance_root_normalised': goal_distance_root,
+      'goal_distance_root_normalised': goal_distance_root/self.max_root_goal_dist,
       'is_unhealthy': 0.0
     }
 
@@ -387,7 +393,7 @@ class LowLevelEnv(PipelineEnv):
     else:
       reward = prev_goal_distance_world - goal_distance_world
       
-    reward += -self.ctrl_cost * jp.sum(jp.square(action)) + self.reward_goal_reached * goal_reached - is_unhealthy * self.unhealthy_cost
+    reward += -self.ctrl_cost * jp.sum(jp.square(action)) + self.reward_goal_reached * goal_reached + is_unhealthy * self.unhealthy_cost
 
     # Compute state observation
     obs = self.get_obs(pipeline_state, goal)
@@ -401,7 +407,7 @@ class LowLevelEnv(PipelineEnv):
       reward=reward,
       goal_distance_relative_frame_normalised=goal_distance,
       goal_distance_world_frame=goal_distance_world,
-      goal_distance_root_normalised=goal_distance_root,
+      goal_distance_root_normalised=goal_distance_root/self.max_root_goal_dist,
       is_unhealthy=1.0*is_unhealthy
     )
     return state.replace(
@@ -546,6 +552,9 @@ class LowLevelEnv(PipelineEnv):
     rot_dist = str(self.rot_dist)
 
     variant = f'{env}, {position_goals}, {velocity_goals}, {rot_dist}'
+
+    if self.goal_root_pos_masked :
+      variant = f'{env}, {position_goals}, {velocity_goals}, {rot_dist}, {self.goal_root_pos_masked}'
     
     filename = f'{filepath}/{variant}'
     

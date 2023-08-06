@@ -138,7 +138,7 @@ def world_to_relative(state, env):
     
     link_parents = jp.array(env.link_parents)
     link_parents = jp.where(link_parents == -1, 0, link_parents)
-    
+
     x = state.x
     xd = state.xd
     root_x = x.take(0)
@@ -228,26 +228,31 @@ def slerp(q1, q2, t):
     # If the dot product is negative, the quaternions
     # have opposite handed-ness and slerp won't take
     # the shorter path. Fix by reversing one quaternion.
-    if dot < 0.0:
-        q2 = -q2
-        dot = -dot
+    q2 = jp.where(dot < 0.0, -q2, q2)
+    dot = jp.where(dot < 0.0, -dot, dot)
 
     DOT_THRESHOLD = 0.9995
-    if dot > DOT_THRESHOLD:
+
+    def f():
+    
         # If the inputs are too close for comfort, linearly interpolate
         # and normalize the result.
         result = q1 + t*(q2 - q1)
         return result / jp.linalg.norm(result)
+    
+    def g():
+            # Since dot is in range [0, DOT_THRESHOLD], acos is safe
+        theta_0 = safe_arccos(dot)  # theta_0 = angle between input vectors
+        theta = theta_0 * t  # theta = angle between v0 and result
+        sin_theta = jp.sin(theta)  # compute this value only once
+        sin_theta_0 = jp.sin(theta_0)  # compute this value only once
 
-    # Since dot is in range [0, DOT_THRESHOLD], acos is safe
-    theta_0 = safe_arccos(dot)  # theta_0 = angle between input vectors
-    theta = theta_0 * t  # theta = angle between v0 and result
-    sin_theta = jp.sin(theta)  # compute this value only once
-    sin_theta_0 = jp.sin(theta_0)  # compute this value only once
+        s0 = jp.cos(theta) - dot * sin_theta / sin_theta_0  # == sin(theta_0 - theta) / sin(theta_0)
+        s1 = sin_theta / sin_theta_0
+        return s0 * q1 + s1 * q2
+    
+    return jax.lax.cond(dot > DOT_THRESHOLD, f, g)
 
-    s0 = jp.cos(theta) - dot * sin_theta / sin_theta_0  # == sin(theta_0 - theta) / sin(theta_0)
-    s1 = sin_theta / sin_theta_0
-    return s0 * q1 + s1 * q2
 
 
 

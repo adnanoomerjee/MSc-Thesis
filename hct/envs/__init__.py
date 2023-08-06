@@ -1,13 +1,16 @@
 from hct.envs.ant_test import AntTest
 from hct.envs.low_level_env import LowLevelEnv
-#from hct.envs.mid_level_env import MidLevelEnv
+from hct.envs.mid_level_env import MidLevelEnv
+
+from hct.envs.test import test
 
 from brax.envs.base import Env
 
 
 _envs = {
     'AntTest': AntTest,
-    'LowLevel': LowLevelEnv
+    'LowLevel': LowLevelEnv,
+    'MidLevel': MidLevelEnv
 }
 
 def get_environment(env_name: str, **kwargs) -> Env:

@@ -25,7 +25,7 @@ from absl import logging
 from brax import envs
 from brax.training import gradients
 from brax.training import pmap
-from brax.training import types
+from hct.training import types
 from brax.training.acme import running_statistics
 from brax.training.acme import specs
 from brax.training.types import Params

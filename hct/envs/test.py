@@ -3,7 +3,9 @@ from hct.envs.tools import timeit
 
 from brax.envs import Env
 
-def test(env: Env, iterations: int):
+def test(env: Env, iterations: int = 1, jit = True):
+    
+    action_shape = env.action_shape
 
     reset_states = []
     step_states = []
@@ -12,10 +14,14 @@ def test(env: Env, iterations: int):
     rng = jax.random.PRNGKey(0)
     rng, rng1, rng2 = jax.random.split(rng, 3)
 
-    action = jax.random.uniform(rng1, shape=(env.sys.act_size(), 1), minval=-1, maxval=1)
+    action = jax.random.uniform(rng1, shape=action_shape, minval=-1, maxval=1)
 
-    jit_reset = jax.jit(env.reset)
-    jit_step = jax.jit(env.step)
+    if jit:
+      jit_reset = jax.jit(env.reset)
+      jit_step = jax.jit(env.step)
+    else:
+      jit_reset = env.reset
+      jit_step = env.step
 
     reset_state, reset_time = timeit(jit_reset, rng2)
     step_state, step_time = timeit(jit_step, reset_state, action)
@@ -30,7 +36,7 @@ def test(env: Env, iterations: int):
 
       rng, rng1, rng2= jax.random.split(rng, 3)
 
-      action = jax.random.uniform(rng1, shape=(env.sys.act_size(), 1), minval=-1, maxval=1)
+      action = jax.random.uniform(rng1, shape=action_shape, minval=-1, maxval=1)
 
       reset_state, reset_time = timeit(jit_reset, rng2)
       step_state, step_time = timeit(jit_step, reset_state, action)

@@ -11,6 +11,11 @@ DEFAULT_MLP_CONFIGS = {
     'value_hidden_layer_sizes': (256,) * 5
 }
 
+LARGE_MLP_CONFIGS = {
+    'policy_hidden_layer_sizes': (64,) * 4,
+    'value_hidden_layer_sizes': (512,) * 5
+}
+
 DEFAULT_TRANSFORMER_CONFIGS = {
     'policy_num_layers': 2,
     'policy_d_model': 16,

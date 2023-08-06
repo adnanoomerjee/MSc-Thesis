@@ -13,6 +13,8 @@ from IPython.display import HTML, clear_output
 from hct import training
 from hct import envs
 
+from hct.training.hyperparam_sweeps.low_level_env_mlp.run import FINAL_LOW_LEVEL_ENV_PARAMETERS, FINAL_LOW_LEVEL_TRAINING_PARAMETERS
+
 import flax
 
 from hct.io import model
@@ -21,6 +23,7 @@ from brax.io import html
 
 from absl import app, logging, flags
 import importlib
+import shutil
 
 func = 'run.hyperparameter_sweep'
 savedir = 'runs'
@@ -44,8 +47,10 @@ def training_run(env_name, env_parameters, train_parameters, variant_name, filep
 
     training_run_name = f'{variant_name}'
     filepath = f'{filepath}{training_run_name}/'
-    if not os.path.exists(filepath):
-      os.makedirs(os.path.dirname(filepath))
+    
+    if os.path.exists(filepath):
+      shutil.rmtree(filepath)
+    os.makedirs(os.path.dirname(filepath))      
 
     logging.get_absl_handler().use_absl_log_file('log', filepath)
 
@@ -100,7 +105,11 @@ def main(argv):
   hyperparam_sweep_fn = function_from_path(hyperparam_func) 
 
   env_params, training_params = hyperparam_sweep_fn()
-  training_run(env_name='LowLevel', env_parameters=env_params[config], train_parameters=training_params[config], variant_name=f'{config}', filepath=savepath)
+
+  env_p = FINAL_LOW_LEVEL_ENV_PARAMETERS #env_params[config]
+  train_p = FINAL_LOW_LEVEL_TRAINING_PARAMETERS #training_params[config]
+
+  training_run(env_name='LowLevel', env_parameters=env_p, train_parameters=train_p, variant_name='final_low_level', filepath=savepath)
 
 if __name__== '__main__':
   app.run(main)

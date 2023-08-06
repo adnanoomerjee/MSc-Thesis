@@ -6,7 +6,7 @@ from hct.envs.goal import Goal
 from hct.envs.ant_test import AntTest
 from hct.envs.tools import *
 from hct.training.configs import NetworkArchitecture, SMALL_TRANSFORMER_CONFIGS, DEFAULT_MLP_CONFIGS
-from hct.io import model
+from hct.io.model import load, save
 
 from brax import base, generalized
 from brax.envs.base import Env, PipelineEnv, State
@@ -145,19 +145,19 @@ class MidLevelEnv(PipelineEnv):
 
   def __init__(
       self,
-      low_level_env: Env,
-      low_level_make_inference_fn: Callable,
-      low_level_params: types.PolicyParams,
-      low_level_network: FeedForwardNetwork,
-      num_nodes=5,
+      low_level_modelpath: str,
       action_repeat=5,
       goal_distance_epsilon = 0.01, # current best 0.01
       rot_dist=True, #trial, current best True
-      architecture_name='Transformer',
       architecture_configs = DEFAULT_MLP_CONFIGS, # trial larger network
       **kwargs
   ):
     
+    low_level_network = load(f"{low_level_modelpath}/network")
+    low_level_params = load(f"{low_level_modelpath}/model_params")
+    low_level_make_inference_fn = load(f"{low_level_modelpath}/make_inference_fn")
+    low_level_env = load(f"{low_level_modelpath}/env")
+
     frame = inspect.currentframe()
     args, _, _, values = inspect.getargvalues(frame)
     self.parameters = {arg: values[arg] for arg in args}
@@ -165,10 +165,7 @@ class MidLevelEnv(PipelineEnv):
 
     logging.info('Initialising environment...')
 
-    morphology = low_level_env.morphology
-  
-    path = epath.resource_path('hct') / f'envs/assets/{morphology}.xml'
-    sys = mjcf.load(path)
+    sys = low_level_env.sys
 
     n_frames = 5
 
@@ -191,6 +188,7 @@ class MidLevelEnv(PipelineEnv):
     super().__init__(sys=sys, backend=backend, **kwargs)
 
     # Low level attributes
+    
     self.low_level_env = low_level_env
     self.low_level_policy = low_level_make_inference_fn(low_level_network)(
         low_level_params,
@@ -208,26 +206,27 @@ class MidLevelEnv(PipelineEnv):
 
     # Reward attributes
     self.distance_reward = low_level_env.distance_reward
+    
 
     # Termination attributes
-    self._terminate_when_unhealthy = low_level_env.terminate_when_unhealthy
-    self._terminate_when_goal_reached = low_level_env.terminate_when_goal_reached
+    self._terminate_when_unhealthy = low_level_env._terminate_when_unhealthy
+    self._terminate_when_goal_reached = low_level_env._terminate_when_goal_reached
     self.goal_distance_epsilon = goal_distance_epsilon
-    self._healthy_z_range = low_level_env.healthy_z_range
+    self._healthy_z_range = low_level_env._healthy_z_range
     self.rot_dist = rot_dist
 
     # Reset attributes
-    self._reset_noise_scale = low_level_env.reset_noise_scale
+    self._reset_noise_scale = low_level_env._reset_noise_scale
 
     # Training attributes
     self.obs_mask = low_level_env.obs_mask
     self.non_actuator_nodes = None
-    self.num_nodes = num_nodes
+    self.num_nodes = 5
 
     # Goal attributes
     self.goal_nodes = low_level_env.goal_nodes
     self.position_goals = low_level_env.position_goals
-    self.velocity_goals = low_level_env.position_goals
+    self.velocity_goals = low_level_env.velocity_goals
     self.root_velocity_goals = low_level_env.root_velocity_goals
     self.full_velocity_goals = low_level_env.full_velocity_goals
     self.goal_size = low_level_env.goal_size
@@ -235,8 +234,9 @@ class MidLevelEnv(PipelineEnv):
     self.goal_root_rot_range = low_level_env.goal_root_rot_range
     self.goal_root_vel_range = low_level_env.goal_root_vel_range
     self.goal_root_ang_range = low_level_env.goal_root_ang_range
-    self.goal_x_mask = low_level_env.goal_x_mask
-    self.goal_xd_mask = low_level_env.goal_xd_mask
+    self.goal_x_mask = low_level_env.goal_x_mask[:5] if hasattr(low_level_env.goal_x_mask, 'shape') else low_level_env.goal_x_mask
+    self.goal_xd_mask = low_level_env.goal_xd_mask[:5] if hasattr(low_level_env.goal_xd_mask, 'shape') else low_level_env.goal_xd_mask
+    self.root_mask = self.low_level_env.root_mask
 
     # Observation attributes
     self.state_obs_width = low_level_env.state_obs_width
@@ -251,21 +251,21 @@ class MidLevelEnv(PipelineEnv):
     self.goalsampler_limit = low_level_env.goalsampler_limit 
 
     if self.position_goals and self.full_velocity_goals:
-      self.action_mask = jp.ones((num_nodes,24)).at[0,12:].set(0)
+      self.action_mask = jp.ones((self.num_nodes,24)).at[0,12:].set(0)
       max_actions_per_node = 24
     elif self.position_goals and self.root_velocity_goals:
-      self.action_mask = jp.ones((num_nodes,18)).at[1:,6:12].set(0).at[0,12:18].set(0)
+      self.action_mask = jp.ones((self.num_nodes,18)).at[1:,6:12].set(0).at[0,12:18].set(0)
       max_actions_per_node = 18
     else:
-      self.action_mask = jp.ones((num_nodes,12)).at[0,6:].set(0)
+      self.action_mask = jp.ones((self.num_nodes,12)).at[0,6:].set(0)
       max_actions_per_node = 12
 
     self.low_level_goal_ranges = jp.concatenate(
         [
-          self.low_level_env.pos_range,
-          self.low_level_env.rot_range,
-          self.low_level_env.vel_range,
-          self.low_level_env.ang_range
+          jp.array(self.low_level_env.pos_range),
+          jp.squeeze(jp.array(self.low_level_env.rot_range)),
+          jp.array(self.low_level_env.vel_range_range),
+          jp.array(self.low_level_env.ang_range)
         ],
         axis=-1
       )
@@ -280,9 +280,17 @@ class MidLevelEnv(PipelineEnv):
 
 
     # Network architecture
-    self.network_architecture = NetworkArchitecture.create(name=architecture_name, **architecture_configs)
-    num_attn_heads = self.network_architecture.configs['policy_num_heads'] if self.network_architecture.name=='Transformer' else 2
-    self.max_actions_per_node = max_actions_per_node if self.network_architecture.name=='Transformer' else max_actions_per_node * num_nodes
+    self.network_architecture = NetworkArchitecture.create(name=low_level_env.network_architecture.name, **architecture_configs)
+
+    if self.network_architecture.name=='Transformer':
+      num_attn_heads = self.network_architecture.configs['policy_num_heads'] 
+      self.max_actions_per_node = max_actions_per_node 
+      self.action_shape = (self.num_nodes, max_actions_per_node)
+    else:
+      num_attn_heads = 2
+      self.max_actions_per_node = max_actions_per_node * self.num_nodes
+      self.action_shape =  (max_actions_per_node * self.num_nodes, 1)
+      self.action_mask = self.action_mask.flatten()
 
     concat_obs_width = self.state_obs_width + self.goal_obs_width
     if concat_obs_width % num_attn_heads != 0:
@@ -312,12 +320,15 @@ class MidLevelEnv(PipelineEnv):
 
     # Sample and set goal
     goal = self._sample_goal(rng3, pipeline_state) 
-    goal_distance, goal_distance_root = self.goal_dist(pipeline_state, goal, frame='relative', root_dist=True)
+
+    averaged_state = self._average_limbs(pipeline_state)
+    
+    goal_distance, goal_distance_root = self.goal_dist(averaged_state, goal, frame='relative', root_dist=True)
     goal_distance = goal_distance/self.max_goal_dist
-    goal_distance_world, _ = self.goal_dist(pipeline_state, goal, frame='world', root_dist=False)
+    goal_distance_world, _ = self.goal_dist(averaged_state, goal, frame='world', root_dist=False)
 
     # Get observation
-    obs = self.get_obs(pipeline_state, goal)
+    obs = self.get_obs(averaged_state, goal)
     
     # Set metrics
     reward, done = jp.zeros(2)
@@ -352,13 +363,14 @@ class MidLevelEnv(PipelineEnv):
 
     rng, rng1 = jax.random.split(rng)
 
-    low_level_goal = self._get_low_level_goal(action) 
-    low_level_obs = self.low_level_env.get_obs(state, low_level_goal)
-    action, _ = self.low_level_policy(low_level_obs, rng1) 
-
     # Take action
     prev_pipeline_state = state.pipeline_state
+    low_level_goal = self._get_low_level_goal(action) 
+    low_level_obs = self.low_level_env.get_obs(prev_pipeline_state, low_level_goal)
+    action, _ = self.low_level_policy(low_level_obs, rng1) 
     pipeline_state = self.pipeline_step(prev_pipeline_state, action) 
+
+    averaged_state = self._average_limbs(pipeline_state)
 
     # Check if unhealthy
     min_z, max_z = self._healthy_z_range
@@ -368,11 +380,11 @@ class MidLevelEnv(PipelineEnv):
     )
 
     # Compute goal distance
-    goal_distance, goal_distance_root = self.goal_dist(pipeline_state, goal, frame='relative', root_dist=True)
+    goal_distance, goal_distance_root = self.goal_dist(averaged_state, goal, frame='relative', root_dist=True)
     goal_distance = goal_distance/self.max_goal_dist
-    goal_distance_world, _ = self.goal_dist(pipeline_state, goal, frame='world', root_dist=False)
+    goal_distance_world, _ = self.goal_dist(averaged_state, goal, frame='world', root_dist=False)
 
-        # Check if goal reached
+    # Check if goal reached
     goal_reached = jp.where(
       goal_distance < self.goal_distance_epsilon, x=1.0, y=0.0
     )
@@ -383,10 +395,10 @@ class MidLevelEnv(PipelineEnv):
     else:
       reward = prev_goal_distance_world - goal_distance_world
 
-    reward += -self.ctrl_cost * jp.sum(jp.square(action)) + self.reward_goal_reached * goal_reached - is_unhealthy * self.unhealthy_cost
+    reward += self.low_level_env.reward_goal_reached * goal_reached + is_unhealthy * self.low_level_env.unhealthy_cost
 
     # Compute state observation
-    obs = self.get_obs(pipeline_state, goal) 
+    obs = self.get_obs(averaged_state, goal) 
 
     if self._terminate_when_unhealthy:
       done = 0.0 + jp.logical_or(is_unhealthy, goal_reached)
@@ -409,20 +421,21 @@ class MidLevelEnv(PipelineEnv):
     )
   
   def _get_low_level_goal(self, g):
-    
+
+    if len(g.shape)==1:
+      g = g.reshape((5,12))
+
     if self.position_goals and not self.velocity_goals:
-      g = jp.insert(g, [6, 18], jp.zeros((self.num_nodes, 6)))
+      g = jp.concatenate([g[:, :6], jp.zeros((self.num_nodes, 6)), g[:, 6:], jp.zeros((self.num_nodes, 6))], axis=-1)
     elif self.velocity_goals and not self.position_goals:
-      g = jp.insert(g, [0, 12], jp.zeros((self.num_nodes, 6)))
+      g = jp.concatenate([jp.zeros((self.num_nodes, 6)), g[:, :6], jp.zeros((self.num_nodes, 6)), g[:, 6:]], axis=-1)
     elif self.root_velocity_goals:
-      g = jp.insert(g, 18, jp.zeros((self.num_nodes, 6)))
+      g = jp.concatenate([g, jp.zeros((self.num_nodes, 6))], axis=-1)
 
-    root_goals = g[0:12]
-    upper_limb_goals = g[:, :24//2].reshape(-1, 1, 24//2)
-    lower_limb_goals = g[:, 24[-1]//2:].reshape(-1, 1, 24[-1]//2)
-    limb_goals = jp.concatenate([upper_limb_goals, lower_limb_goals], axis=-1)
+    root_goals = g[0:1, :12]
+    limb_goals = g[1:, :].reshape(-1, 1, 12).squeeze()
 
-    goals = jp.concatenate([root_goals, limb_goals])
+    goals = jp.concatenate([root_goals, limb_goals], axis=-2)
     goals_unnormalised = unnormalize_to_range(
       goals,
       self.low_level_goal_ranges[0],
@@ -439,7 +452,7 @@ class MidLevelEnv(PipelineEnv):
     x_rel = base.Transform(pos_goals, rot_goals)
     xd_rel = base.Motion(vel_goals, ang_goals)
 
-    return Goal(g, None, None, None, None, x_rel, xd_rel)
+    return Goal(None, None, None, None, x_rel, xd_rel, None)
 
 
   def get_obs(self, state: base.State, goal: Goal) -> jp.ndarray:
@@ -452,7 +465,6 @@ class MidLevelEnv(PipelineEnv):
     
     def _get_state_obs(state: Union[base.State, Goal]):
         """Returns world root position (masking XY position) and limb position relative to parent"""
-        state = self._average_limbs(state)
         return self._world_to_relative(state)
     
     def _get_goal_obs(goal: Goal, sx: base.Transform, sxd: base.Motion):
@@ -461,12 +473,12 @@ class MidLevelEnv(PipelineEnv):
         gx = goal.x_rel.vmap(in_axes = (0, 0)).to_local(sx) * self.goal_x_mask
         gx = concatenate_attrs(gx)
       else:
-        gx = jp.empty((self.num_links, 0))
+        gx = jp.empty((self.num_nodes, 0))
       if self.velocity_goals:
         gxd = jax.tree_map(lambda x: jax.vmap(inv_rotate)(x, sx.rot), goal.xd_rel.__sub__(sxd)) * self.goal_xd_mask 
         gxd = concatenate_attrs(gxd)
       else:
-        gxd = jp.empty((self.num_links, 0))
+        gxd = jp.empty((self.num_nodes, 0))
       return gx, gxd
     
     sx, sxd =  _get_state_obs(state)
@@ -492,7 +504,7 @@ class MidLevelEnv(PipelineEnv):
     return obs
   
 
-  def goal_dist(self, state: base.State, goal: Goal, frame: Literal['world', 'relative']):
+  def goal_dist(self, state: base.State, goal: Goal, frame: Literal['world', 'relative'], root_dist=False):
     """
     Computes distance d(s,g) between state and goal in world frame, 
     accounting for quaternion double cover.
@@ -500,20 +512,17 @@ class MidLevelEnv(PipelineEnv):
     dist(s,g) = ||s-g||
     """
 
-    state = self._average_limbs(state)
-
     if frame == 'world':
         state_x = state.x
         state_xd = state.xd 
-        goal_x = goal.x_world
-        goal_xd = goal.xd_world
+        goal_x = goal.x
+        goal_xd = goal.xd
     else:
         state_x, state_xd = self._world_to_relative(state)
         goal_x = goal.x_rel
         goal_xd = goal.xd_rel
 
-    dist, root_dist = dist(self, state_x, state_xd, goal_x, goal_xd, root_dist)
-    return dist, root_dist
+    return dist(self, state_x, state_xd, goal_x, goal_xd, root_dist)
   
 
   def _sample_goal(self, rng: jp.ndarray, state: base.State):
@@ -557,24 +566,24 @@ class MidLevelEnv(PipelineEnv):
 
     x_rel, xd_rel = self._world_to_relative(goal_state)   
 
-    return Goal(g, q, qd, x, xd, x_rel, xd_rel)
+    return Goal(q, qd, goal_state.x, goal_state.xd, x_rel, xd_rel)
   
 
   def _average_limbs(self, state):
 
-    slerp = jax.vmap(slerp)
+    slerp_vmap = jax.vmap(slerp, in_axes=(0, 0, None))
 
     def _average_x(x: base.Transform):
-      root_pos = x.pos[0]
+      root_pos = jp.expand_dims(x.pos[0], axis=0)
       limbs_pos = jp.mean(x.pos[1:].reshape(4, 2, -1), axis=-2)
-      root_rot = x.rot[0] 
-      limbs_rot = slerp(x.rot[jp.array(1,3,5,7)], x.rot[jp.array(2,4,6,8)]) 
+      root_rot = jp.expand_dims(x.rot[0], axis=0)
+      limbs_rot = slerp_vmap(x.rot[jp.array([1,3,5,7])], x.rot[jp.array([2,4,6,8])], 0.5) 
       pos = jp.concatenate([root_pos, limbs_pos], axis=-2)
       rot = jp.concatenate([root_rot, limbs_rot], axis=-2)
       return base.Transform(pos, rot)
       
     def _average_xd(xd: base.Motion):
-      root_xd = xd.take(0)
+      root_xd = jax.tree_map(lambda xd: jp.expand_dims(xd, axis=0), xd.take(0))
       limbs_xd = xd.take(jp.array(range(1, 9)))
       limbs_xd = jax.tree_map(
           lambda m: jp.mean(m.reshape(4, 2, -1), axis=-2),
@@ -618,7 +627,7 @@ class MidLevelEnv(PipelineEnv):
     filename = f'{filepath}/{variant}'
     
     if os.path.isfile(filename):
-      return model.load(filename)
+      return load(filename)
 
     quaternion_to_spherical_vmap = jax.vmap(quaternion_to_spherical, in_axes=0)
 
@@ -675,7 +684,7 @@ class MidLevelEnv(PipelineEnv):
       'goalsampler_qd_limit': goalsampler_qd_limit,
     }
 
-    model.save(filename, return_dict)
+    save(filename, return_dict)
     return return_dict
   
 """

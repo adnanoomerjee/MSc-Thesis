@@ -20,11 +20,11 @@ from typing import Callable, Sequence, Tuple, Union
 from hct.envs.wrappers.training import EvalWrapper
 
 from brax import envs
-from brax.training.types import Metrics
-from brax.training.types import Policy
-from brax.training.types import PolicyParams
-from brax.training.types import PRNGKey
-from brax.training.types import Transition
+from hct.training.types import Metrics
+from hct.training.types import Policy
+from hct.training.types import PolicyParams
+from hct.training.types import PRNGKey
+from hct.training.types import Transition
 from brax.v1 import envs as envs_v1
 import jax
 import jax.numpy as jp
@@ -46,16 +46,19 @@ def actor_step(
   nstate = env.step(env_state, actions)
   state_extras = {x: nstate.info[x] for x in extra_fields}
   if save_state:
-    running_state = jax.tree_map(lambda x, y: jp.stack([x, y]), 
-                                 env_state.info['state'], 
-                                 nstate.pipeline_state)
-    state_extras.update(state=running_state)  
+    nstate_var = nstate.pipeline_state
+  else:
+    nstate_var = None
+    #step = nstate.info['eval_metrics'].episode_steps[-1].astype(int)
+    #running_state = env_state.info['state']
+    #nstate.info.update(state=jax.tree_map(lambda x, y: x.at[:, step, ...].set(y), running_state, nstate.pipeline_state))
   return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
       observation=env_state.obs,
       action=actions,
       reward=nstate.reward,
       discount=1 - nstate.done,
       next_observation=nstate.obs,
+      nstate=nstate_var,
       extras={
           'policy_extras': policy_extras,
           'state_extras': state_extras
@@ -76,8 +79,6 @@ def generate_unroll(
   @jax.jit
   def f(carry, unused_t):
     state, current_key = carry
-    if save_state:
-      state.update(state=state.pipeline_state)
     current_key, next_key = jax.random.split(current_key)
     nstate, transition = actor_step(
         env, state, policy, current_key, extra_fields=extra_fields, save_state=save_state)
@@ -85,6 +86,9 @@ def generate_unroll(
 
   (final_state, _), data = jax.lax.scan(
       f, (env_state, key), (), length=unroll_length)
+  #if save_state:
+  #  rollout = jax.tree_util.tree_map(lambda x: jp.swapaxes(x, 0, 1), data.extras['state_extras']['state'])
+  #  data.extras['state_extras'].update(state=rollout)
   return final_state, data
 
 
@@ -121,6 +125,8 @@ class Evaluator:
                              key: PRNGKey) -> State:
       reset_keys = jax.random.split(key, num_eval_envs)
       eval_first_state = eval_env.reset(reset_keys)
+      #if save_state:
+      #    eval_first_state.info.update(state=jax.tree_map(lambda x: jp.stack([x]*1001, axis=1), eval_first_state.pipeline_state))
       return generate_unroll(
           eval_env,
           eval_first_state,
@@ -149,10 +155,14 @@ class Evaluator:
         f'eval/episode_{name}': {
            'mean': jp.mean(value).item(), 
            'std': jp.std(value).item(), 
-           'stderr' :jp.std(value).item()/self._num_eval_envs} if aggregate_episodes else value
+           'stderr' :jp.std(value).item()/jp.sqrt(self._num_eval_envs)} if aggregate_episodes else value
         for name, value in eval_metrics.episode_metrics.items()
     }
-    metrics['eval/avg_episode_length'] = jp.array([jp.mean(eval_metrics.episode_steps).item(), jp.std(eval_metrics.episode_steps).item()])
+    metrics['eval/avg_episode_length'] = {
+        'mean': jp.mean(eval_metrics.episode_steps).item(), 
+         'std': jp.std(eval_metrics.episode_steps).item(),
+         'stderr': jp.std(eval_metrics.episode_steps).item()/jp.sqrt(self._num_eval_envs)
+         }
     metrics['eval/epoch_eval_time'] = epoch_eval_time
     metrics['eval/sps'] = self._steps_per_unroll / epoch_eval_time
     self._eval_walltime = self._eval_walltime + epoch_eval_time
