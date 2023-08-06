@@ -23,13 +23,14 @@ from brax.io import json
 from etils import epath
 import jinja2
 
+custom_visualiser_url = "https://cdn.jsdelivr.net/gh/adnanoomerjee/MSc-Thesis@main/hct/io/visualizer/js/viewer.js"
 
-def save(path: str, sys: System, states: List[State]):
+def save(path: str, sys: System, states: List[State], base_url=custom_visualiser_url):
   """Saves trajectory as an HTML text file."""
   path = epath.Path(path)
   if not path.parent.exists():
     path.parent.mkdir(parents=True)
-  path.write_text(render(sys, states))
+  path.write_text(render(sys, states, base_url=base_url))
 
 
 def render_from_json(
@@ -55,7 +56,7 @@ def render(
     states: List[State],
     height: Union[int, str] = 480,
     colab: bool = True,
-    base_url: Optional[str] = None,
+    base_url: Optional[str] = custom_visualiser_url,
 ) -> str:
   """Returns an HTML string for the brax system and trajectory.
 
