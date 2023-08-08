@@ -166,7 +166,7 @@ def plot(experimental_data, metric, timeframe: Literal['training', 'testing'], e
   if error is not None:
     plt.fill_between(steps, lower_error , upper_error , alpha=0.3, label='Stderr Shading') 
 
-def display(experimental_data, rollout_id):
+def display(experimental_data, rollout_id, append_goal = True):
 
   select_id = lambda x, y: x[y]
 
@@ -195,9 +195,10 @@ def display(experimental_data, rollout_id):
   a_c=rollout[-1].a_c, 
   mass=rollout[-1].mass,
 )
-  for i in range(50):
-    rollout.append(goal)
-    rollout.insert(0, goal)
+  if append_goal:
+    for i in range(50):
+      rollout.append(goal)
+      rollout.insert(0, goal)
 
   return html.render(env.sys.replace(dt=env.dt), rollout)
 

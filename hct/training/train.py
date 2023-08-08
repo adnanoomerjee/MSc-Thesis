@@ -396,7 +396,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
       params = _unpmap(
           (training_state.normalizer_params, training_state.params.policy))
       
-      if not (it*10 % (num_evals_after_init*10//10)) or it == num_evals_after_init-1:
+      if not (it % (num_evals_after_init//10)) or it == num_evals_after_init-1:
         savetime = time.time()
         policy_params_fn(current_step, make_policy, params, make_inference_fn, ppo_network)
         logging.info('saving model, time to save: %s', time.time() - savetime)

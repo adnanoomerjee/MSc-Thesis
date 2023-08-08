@@ -57,6 +57,7 @@ function createCylinder(radius, height, mat) {
   const cyl = new THREE.Mesh(geometry, mat);
   cyl.baseMaterial = cyl.material;
   cyl.castShadow = true;
+  cyl.receiveShadow = true;
   cyl.layers.enable(1);
   return cyl;
 }
@@ -70,17 +71,20 @@ function createCapsule(capsule, mat) {
   sphere1.baseMaterial = sphere1.material;
   sphere1.position.set(0, 0, capsule.length / 2);
   sphere1.castShadow = true;
+  sphere1.receiveShadow = true;
   sphere1.layers.enable(1);
 
   const sphere2 = new THREE.Mesh(sphere_geom, mat);
   sphere2.baseMaterial = sphere2.material;
   sphere2.position.set(0, 0, -capsule.length / 2);
   sphere2.castShadow = true;
+  sphere2.receiveShadow = true;
   sphere2.layers.enable(1);
 
   const cylinder = new THREE.Mesh(cylinder_geom, mat);
   cylinder.baseMaterial = cylinder.material;
   cylinder.castShadow = true;
+  cylinder.receiveShadow = true;
   cylinder.rotation.x = -Math.PI / 2;
   cylinder.layers.enable(1);
 
@@ -94,6 +98,7 @@ function createBox(box, mat) {
       2 * box.halfsize[0], 2 * box.halfsize[1], 2 * box.halfsize[2]);
   const mesh = new THREE.Mesh(geom, mat);
   mesh.castShadow = true;
+  mesh.receiveShadow = true;
   mesh.baseMaterial = mesh.material;
   mesh.layers.enable(1);
   return mesh;
@@ -112,6 +117,7 @@ function createSphere(sphere, mat) {
   const geom = new THREE.SphereGeometry(sphere.radius, 16, 16);
   const mesh = new THREE.Mesh(geom, mat);
   mesh.castShadow = true;
+  mesh.receiveShadow = true;
   mesh.baseMaterial = mesh.material;
   mesh.layers.enable(1);
   return mesh;
@@ -135,6 +141,7 @@ function createMesh(meshGeom, mat) {
 
   const mesh = new THREE.Mesh(bufferGeometry, mat);
   mesh.castShadow = true;
+  mesh.receiveShadow = true;
   mesh.baseMaterial = mesh.material;
   mesh.layers.enable(1);
   return mesh;

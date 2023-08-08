@@ -6,6 +6,7 @@ import json
 
 import jax
 from flax import struct, linen
+import jax.numpy as jp
 
 from hct.training import train as ppo
 from hct.training.configs import *
@@ -21,25 +22,29 @@ from pathlib import Path
 
 low_level_modelpath_parent = Path('/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/runs')
 filepath = Path('/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/mid_level_env_mlp/runs')
-low_level_model_ids = [4]
+low_level_model_ids = ['final_low_level']
+
+low_level_goal_root_pos_ranges = [
+    jp.array([[-1,1], [-1,1], [-0.25, 0.45]]),
+    jp.array([[-1.5,1.5], [-1.5,1.5], [-0.25, 0.45]]),
+    jp.array([[-2,2], [-2,2], [-0.25, 0.45]])
+]
 
 MID_LEVEL_ENV_PARAMETERS = {
-    'low_level_modelpath': [f"low_level_modelpath_parent{id}" for id in low_level_model_ids],
-    'action_repeat': [5, 10, 20, 50],
-    'architecture_configs': [DEFAULT_MLP_CONFIGS, LARGE_MLP_CONFIGS]
+    'low_level_modelpath': [f"{low_level_modelpath_parent}/{id}" for id in low_level_model_ids],
+    'action_repeat': [1, 5, 10, 20],
+    'low_level_goal_root_pos_range': low_level_goal_root_pos_ranges,
+    'architecture_configs': [DEFAULT_MLP_CONFIGS]
     }
 
-ADDITIONAL_LOW_LEVEL_ENV_PARAMETERS = {
-    'position_goals': True,
-    'velocity_goals': 'root',
-    'goal_root_pos_masked': [True],
-    'reward_goal_reached': (0, 50, 100),
-    'unhealthy_cost': (0, -1),
-    'air_probability': (0.1, 0.3),
-    'distance_reward': ('absolute', 'relative')
+MID_LEVEL_ENV_PARAMETERS_LARGE_NETWORK = {
+    'low_level_modelpath': [f"{low_level_modelpath_parent}/{id}" for id in low_level_model_ids],
+    'action_repeat': [1, 5, 10, 20],
+    'low_level_goal_root_pos_range': low_level_goal_root_pos_ranges,
+    'architecture_configs': [LARGE_MLP_CONFIGS]
     }
 
-LOW_LEVEL_TRAINING_PARAMETERS = {
+MID_LEVEL_TRAINING_PARAMETERS = {
     'num_timesteps':300_000_000, 
     'num_envs':2048, 
     'max_devices_per_host':None,
@@ -62,27 +67,22 @@ LOW_LEVEL_TRAINING_PARAMETERS = {
 }
 
 def hyperparameter_sweep():
-    # Special handling for 'position_goals' and 'velocity_goals'
-    pos_vel_combinations = [(True, v) for v in MID_LEVEL_ENV_PARAMETERS['velocity_goals']] + [(False, 'full')]
-
-    # Get other parameters
-    other_params = {key: value for key, value in MID_LEVEL_ENV_PARAMETERS.items() if key not in ['position_goals', 'velocity_goals']}
-    other_param_names = other_params.keys()
-    other_param_values = other_params.values()
-
-    # Generate all combinations of the other parameters
-    other_param_combinations = list(itertools.product(*other_param_values))
-
-    # Combine 'pos_vel_combinations' with 'other_param_combinations'
-    env_parameters = []
-    for pos_vel in pos_vel_combinations:
-        for other in other_param_combinations:
-            combined_dict = {'position_goals': pos_vel[0], 'velocity_goals': pos_vel[1], 'architecture_configs': DEFAULT_MLP_CONFIGS}
-            for i, name in enumerate(other_param_names):
-                combined_dict[name] = other[i]
-            env_parameters.append(combined_dict)
+    # Get parameters
+    params = MID_LEVEL_ENV_PARAMETERS
+    param_names = params.keys()
+    param_values = params.values()
+    combinations = list(itertools.product(*param_values))
+    env_parameters = [dict(zip(param_names, combination)) for combination in combinations]
     
-    training_parameters = [LOW_LEVEL_TRAINING_PARAMETERS for p in env_parameters]
+    params = MID_LEVEL_ENV_PARAMETERS_LARGE_NETWORK
+    param_names = params.keys()
+    param_values = params.values()
+    combinations = list(itertools.product(*param_values))
+    env_parameters += [dict(zip(param_names, combination)) for combination in combinations]
+    #env8 = env_parameters[0].copy()
+    #env8.update(architecture_configs=VLARGE_MLP_CONFIGS)
+    #env_parameters.append(env8)
+    training_parameters = [MID_LEVEL_TRAINING_PARAMETERS for p in env_parameters]
     return env_parameters, training_parameters
 
 def generate_data_tables():
@@ -108,8 +108,7 @@ def generate_data_tables():
     data = pd.DataFrame(data)
     data.sort_values(by='Model Variant ID', inplace=True, ascending=True)
 
-    savepath = f"{filepath.parent}/low_level_experimental_results.csv"
+    savepath = f"{filepath.parent}/mid_level_experimental_results.csv"
     data.to_csv(savepath, index=False)
 
     return data
-

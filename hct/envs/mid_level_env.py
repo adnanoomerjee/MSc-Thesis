@@ -147,6 +147,8 @@ class MidLevelEnv(PipelineEnv):
       self,
       low_level_modelpath: str,
       action_repeat=5,
+      goal_root_pos_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-0.25, 0.45]]),
+      low_level_goal_root_pos_range: jp.ndarray = jp.array([[-1,1], [-1,1], [-0.25, 0.45]]),
       goal_distance_epsilon = 0.01, # current best 0.01
       rot_dist=True, #trial, current best True
       architecture_configs = DEFAULT_MLP_CONFIGS, # trial larger network
@@ -230,7 +232,7 @@ class MidLevelEnv(PipelineEnv):
     self.root_velocity_goals = low_level_env.root_velocity_goals
     self.full_velocity_goals = low_level_env.full_velocity_goals
     self.goal_size = low_level_env.goal_size
-    self.goal_root_pos_range = low_level_env.goal_root_pos_range
+    self.goal_root_pos_range = goal_root_pos_range
     self.goal_root_rot_range = low_level_env.goal_root_rot_range
     self.goal_root_vel_range = low_level_env.goal_root_vel_range
     self.goal_root_ang_range = low_level_env.goal_root_ang_range
@@ -260,9 +262,12 @@ class MidLevelEnv(PipelineEnv):
       self.action_mask = jp.ones((self.num_nodes,12)).at[0,6:].set(0)
       max_actions_per_node = 12
 
+    low_level_pos_range_0 = self.low_level_env.pos_range[0].at[0].set(low_level_goal_root_pos_range[:,0])
+    low_level_pos_range_1 = self.low_level_env.pos_range[1].at[0].set(low_level_goal_root_pos_range[:,1])
+
     self.low_level_goal_ranges = jp.concatenate(
         [
-          jp.array(self.low_level_env.pos_range),
+          jp.array((low_level_pos_range_0, low_level_pos_range_1)),
           jp.squeeze(jp.array(self.low_level_env.rot_range)),
           jp.array(self.low_level_env.vel_range_range),
           jp.array(self.low_level_env.ang_range)
@@ -500,7 +505,7 @@ class MidLevelEnv(PipelineEnv):
 
     if self.network_architecture.name == 'MLP':
       obs = obs.reshape(*obs.shape[:-2], -1)
-    
+
     return obs
   
 

@@ -2,6 +2,9 @@ import functools
 import jax
 import os
 
+import sys
+sys.path.append("/nfs/nhome/live/aoomerjee/MSc-Thesis/")
+
 cwd = os.getcwd()
 
 from datetime import datetime
@@ -23,16 +26,13 @@ from absl import app, logging, flags
 import importlib
 import shutil
 
-func = 'run.hyperparameter_sweep'
-savedir = 'runs'
+from hct.training.hyperparam_sweeps.mid_level_env_mlp.run import hyperparameter_sweep
 
-default = f'hct/training/hyperparam_sweeps/mid_level_env_mlp/'
 
 FLAGS = flags.FLAGS
 
 flags.DEFINE_bool('distributed', False, 'initialise distributed.')
 flags.DEFINE_integer('config', 1, 'run config')
-flags.DEFINE_string('hyperparam_func_path', default, 'hyperparam_sweep_function_path')
 
 logging.set_verbosity(logging.INFO)
 jp.set_printoptions(precision=4)
@@ -96,18 +96,16 @@ def main(argv):
   if FLAGS.distributed:
     jax.distributed.initialize()
 
-  filepath = FLAGS.hyperparam_func_path
-  savepath = filepath + 'runs/'
-  hyperparam_func = filepath.replace('/','.') + func
-  config = FLAGS.config
-  hyperparam_sweep_fn = function_from_path(hyperparam_func) 
+  savepath = f'hct/training/hyperparam_sweeps/mid_level_env_mlp/runs/'
 
-  env_params, training_params = hyperparam_sweep_fn()
+  config = FLAGS.config
+
+  env_params, training_params = hyperparameter_sweep()
 
   env_p = env_params[config]
   train_p = training_params[config]
 
-  training_run(env_name='LowLevel', env_parameters=env_p, train_parameters=train_p, variant_name=f'{config}', filepath=savepath)
+  training_run(env_name='MidLevel', env_parameters=env_p, train_parameters=train_p, variant_name=f'{config}', filepath=savepath)
 
 if __name__== '__main__':
   app.run(main)

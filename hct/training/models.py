@@ -23,6 +23,8 @@ from brax.training.types import PreprocessObservationFn
 from brax.training.spectral_norm import SNDense
 from brax.training.networks import ActivationFn, FeedForwardNetwork, Initializer
 
+from absl import logging
+
 from flax import linen
 import jax
 import jax.numpy as jp
@@ -55,7 +57,7 @@ class MLP(linen.Module):
             rate=self.dropout_rate,
             deterministic=deterministic)(hidden)
     hidden = jp.squeeze(hidden, axis=-1) if hidden.shape[-1] == 1 else hidden
-    if action_mask is not None:
+    if action_mask is not None and self.layer_sizes[-1] > 1:
       hidden = hidden * jp.repeat(action_mask, 2, axis=-1) 
     return hidden, None
 

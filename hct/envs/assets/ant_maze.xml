@@ -3,7 +3,7 @@
   <option timestep="0.01" iterations="4" />
   <custom>
     <!-- brax custom params -->
-    <numeric data="10 0.0 0.55 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 1.0 0.0 1.0" name="init_qpos"/>
+    <numeric data="8 -8 0.55 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 1.0 0.0 1.0" name="init_qpos"/>
     <numeric data="1000" name="constraint_limit_stiffness"/>
     <numeric data="4000" name="constraint_stiffness"/>
     <numeric data="10" name="constraint_ang_damping"/>
@@ -29,9 +29,26 @@
   <worldbody>
     <light cutoff="100" diffuse="1 1 1" dir="-0 0 -1.3" directional="true" exponent="1" pos="0 0 1.3" specular=".1 .1 .1"/>
     <geom conaffinity="1" condim="3" material="MatPlane" pos="0 0 0" size="40 40 40" type="plane"/>
-    <geom conaffinity="1" pos="2 0 0.75" size="0.05 2 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
-    <geom conaffinity="1" pos="-2 0 0.75" size="0.05 2 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
-    <geom conaffinity="1" pos="0 -2 0.75" size="10 0.05 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    
+    <!-- maze horizotal walls -->
+    <geom conaffinity="1" pos="0 -10 0.75" size="10 0.1 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="0 10 0.75" size="10 0.1 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-2 -2 0.75" size="4 0.1 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-2 6 0.75" size="4 0.1 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-8 2 0.75" size="2 0.1 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="4 2 0.75" size="2 0.1 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+
+    <!-- maze vertical walls -->
+    <geom conaffinity="1" pos="10 0 0.75" size="0.1 10 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-10 0 0.75" size="0.1 10 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="6 -2 0.75" size="0.1 8 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-2 -8 0.75" size="0.1 2 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-2 2 0.75" size="0.1 4 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="2 -4 0.75" size="0.1 2 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-6 -4 0.75" size="0.1 2 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+    <geom conaffinity="1" pos="-6 8 0.75" size="0.1 2 0.75" type="box" rgba="0.2 0.2 0.8 1"/>
+
+    <!-- ant -->
     <body name="torso" pos="0 0 0.75">
       <camera name="track" mode="trackcom" pos="0 -3 0.3" xyaxes="1 0 0 0 0 1"/>
       <geom name="torso_geom" contype="1" pos="0 0 0" size="0.25" type="sphere"/>
