@@ -23,7 +23,7 @@ from brax.io import json
 from etils import epath
 import jinja2
 
-custom_visualiser_url = "https://cdn.jsdelivr.net/gh/adnanoomerjee/MSc-Thesis@a64b1c3/hct/io/visualizer/js/viewer.js"
+custom_visualiser_url = "https://cdn.jsdelivr.net/gh/adnanoomerjee/MSc-Thesis@92b6e4e/hct/io/visualizer/js/viewer.js"
 
 def save(path: str, sys: System, states: List[State], base_url=custom_visualiser_url):
   """Saves trajectory as an HTML text file."""
