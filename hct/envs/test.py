@@ -2,8 +2,11 @@ import jax
 from hct.envs.tools import timeit
 from hct.io.html import render
 from hct.io.model import load
+from hct.envs.wrappers.training import VmapWrapper
 
 from brax.envs import Env
+import functools
+import brax
 
 def test(env: Env, iterations: int = 1, jit = True):
     
@@ -58,7 +61,7 @@ def test(env: Env, iterations: int = 1, jit = True):
 
     return jit_reset, jit_step, reset_states, step_states, reset_times
 
-def rollout(modelpath, seed = 1):
+def rollout(modelpath, seed = 1, test = False, batch_size = 64):
   
     env = load(f"{modelpath}/env")
 
@@ -76,6 +79,9 @@ def rollout(modelpath, seed = 1):
         )
 
     states = []
+    pipeline_states = []
+    actions = []
+    policy_extras = []
 
     rng = jax.random.PRNGKey(seed)
 
@@ -85,10 +91,49 @@ def rollout(modelpath, seed = 1):
 
     state = jit_reset(rng)
 
-    for _ in range(env.episode_length):
-      states.append(state)
-      rng, rng1 = jax.random.split(rng)
-      action, _ = jit_policy(state.obs, rng1)
-      state = jit_step(state, action)
+    for i in range(int(env.episode_length)):
 
-    return render(env.sys.replace(dt=env.dt), [state.pipeline_state for state in states]), states, env
+      states.append(state)
+      pipeline_states.append(state.pipeline_state)
+      rng, rng1 = jax.random.split(rng)
+      action, extras = jit_policy(state.obs, rng1)
+      actions.append(action)
+      policy_extras.append(extras)
+      state = jit_step(state, action)
+        
+    return {
+       'rollout': render(env.sys.replace(dt=env.dt), pipeline_states), 
+       'states': states, 
+       'actions': actions, 
+       'policy_extras': policy_extras, 
+       'env':env
+       }
+
+def test_rollout(env, seed = 1):
+  
+    states = []
+    pipeline_states = []
+    actions = []
+
+    rng = jax.random.PRNGKey(seed)
+
+    jit_reset = jax.jit(env.reset)
+    jit_step = jax.jit(env.step)
+    policy = functools.partial(jax.random.uniform, minval=-1, maxval=1, shape=env.action_shape)
+
+    state = jit_reset(rng)
+
+    for _ in range(int(env.episode_length)):
+      states.append(state)
+      pipeline_states.append(state.pipeline_state)
+      rng, rng1 = jax.random.split(rng)
+      action = policy(rng1)
+      actions.append(action)
+      state = jit_step(state, action)
+        
+    return {
+       'rollout': render(env.sys.replace(dt=env.dt), pipeline_states), 
+       'states': states, 
+       'actions': actions, 
+       'env':env
+       }

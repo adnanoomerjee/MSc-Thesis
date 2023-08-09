@@ -97,7 +97,7 @@ class Viewer {
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
     this.camera.position.set(5, 8, 20);
     this.camera.follow = false;
-    this.camera.freezeAngle = false;
+    this.camera.freezeAngle = true;
     this.camera.followDistance = 10;
 
     this.scene.background = new THREE.Color(0xf5f5f5);

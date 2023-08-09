@@ -172,9 +172,9 @@ class LowLevelEnv(PipelineEnv):
     terminate_when_unhealthy=False,
     terminate_when_goal_reached=True,
     unhealthy_cost=0, # trial 0, -1.0, current best 0
-    healthy_z_range=(0.255, 10),
-    air_probability=0.1, # trial 0.1, 0.3, current best 0.1
-    goal_distance_epsilon = 0.01, 
+    healthy_z_range=(0.251, 10),
+    air_probability=0.2, # trial 0.1, 0.3, current best 0.1
+    goal_distance_epsilon = 0.001, 
     reset_noise_scale=0.1,
     rot_dist=True,
     backend='positional',
@@ -347,11 +347,13 @@ class LowLevelEnv(PipelineEnv):
       'goal_distance_relative_frame_normalised': goal_distance,
       'goal_distance_world_frame': goal_distance_world,
       'goal_distance_root_normalised': goal_distance_root/self.max_root_goal_dist,
-      'is_unhealthy': 0.0
+      'is_unhealthy': 0.0,
+      'goal_reached': 0.0
     }
 
     info = {
-      'goal': goal
+      'goal': goal,
+      'step': 0
     }
 
     return State(pipeline_state, obs, reward, done, metrics, info)
@@ -364,6 +366,7 @@ class LowLevelEnv(PipelineEnv):
       action = jp.squeeze(action, axis=-1) 
 
     goal = state.info['goal']
+    step = state.info['step'] + 1
     prev_goal_distance_world = state.metrics['goal_distance_world_frame']
 
     # Take action
@@ -371,11 +374,7 @@ class LowLevelEnv(PipelineEnv):
     pipeline_state = self.pipeline_step(prev_pipeline_state, action)
 
     # Check if unhealthy
-    min_z, max_z = self._healthy_z_range
-    is_unhealthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=1.0, y=0.0)
-    is_unhealthy = jp.where(
-        pipeline_state.x.pos[0, 2] > max_z, x=1.0, y=is_unhealthy
-    )
+    is_unhealthy = jp.where(rotate(jp.array([0, 0, 1]), pipeline_state.x.rot[0])[-1] < 0, x=1.0, y=0.0)
 
     # Compute goal distance
     goal_distance, goal_distance_root = self.goal_dist(pipeline_state, goal, frame='relative', root_dist=True)
@@ -391,9 +390,9 @@ class LowLevelEnv(PipelineEnv):
     if self.distance_reward == 'absolute':
       reward = -goal_distance_world
     else:
-      reward = prev_goal_distance_world - goal_distance_world
+      reward = (prev_goal_distance_world - goal_distance_world)/self.dt
       
-    reward += -self.ctrl_cost * jp.sum(jp.square(action)) + self.reward_goal_reached * goal_reached + is_unhealthy * self.unhealthy_cost
+    reward += -self.ctrl_cost * jp.sum(jp.square(action)) + self.reward_goal_reached * goal_reached + is_unhealthy * self.unhealthy_cost 
 
     # Compute state observation
     obs = self.get_obs(pipeline_state, goal)
@@ -408,8 +407,12 @@ class LowLevelEnv(PipelineEnv):
       goal_distance_relative_frame_normalised=goal_distance,
       goal_distance_world_frame=goal_distance_world,
       goal_distance_root_normalised=goal_distance_root/self.max_root_goal_dist,
-      is_unhealthy=1.0*is_unhealthy
+      is_unhealthy=1.0*is_unhealthy,
+      goal_reached=1.0*goal_reached
     )
+
+    state.info.update(step=step)
+
     return state.replace(
       pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
     )

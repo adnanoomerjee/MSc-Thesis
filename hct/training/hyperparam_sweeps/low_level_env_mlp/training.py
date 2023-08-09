@@ -3,6 +3,8 @@ import jax
 import os
 
 cwd = os.getcwd()
+import sys
+sys.path.append("/nfs/nhome/live/aoomerjee/MSc-Thesis/")
 
 from datetime import datetime
 from jax import numpy as jp
@@ -22,6 +24,8 @@ from brax.io import html
 from absl import app, logging, flags
 import importlib
 import shutil
+
+from hct.training.hyperparam_sweeps.low_level_env_mlp.run import hyperparameter_sweep
 
 func = 'run.hyperparameter_sweep'
 savedir = 'runs'
@@ -97,12 +101,11 @@ def main(argv):
     jax.distributed.initialize()
 
   filepath = FLAGS.hyperparam_func_path
-  savepath = filepath + 'runs/'
-  hyperparam_func = filepath.replace('/','.') + func
+  savepath = filepath + 'runs2/'
+  
   config = FLAGS.config
-  hyperparam_sweep_fn = function_from_path(hyperparam_func) 
 
-  env_params, training_params = hyperparam_sweep_fn()
+  env_params, training_params = hyperparameter_sweep()
 
   env_p = env_params[config]
   train_p = training_params[config]

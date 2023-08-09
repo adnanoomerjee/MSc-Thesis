@@ -149,7 +149,7 @@ class MidLevelEnv(PipelineEnv):
       action_repeat=5,
       goal_root_pos_range: jp.ndarray = jp.array([[-10,10], [-10,10], [-0.25, 0.45]]),
       low_level_goal_root_pos_range: jp.ndarray = jp.array([[-1,1], [-1,1], [-0.25, 0.45]]),
-      goal_distance_epsilon = 0.01, # current best 0.01
+      goal_distance_epsilon = 0.001, # current best 0.01
       rot_dist=True, #trial, current best True
       architecture_configs = DEFAULT_MLP_CONFIGS, # trial larger network
       **kwargs
@@ -345,9 +345,11 @@ class MidLevelEnv(PipelineEnv):
       'reward': reward,
       'goal_distance_relative_frame_normalised': goal_distance,
       'goal_distance_world_frame': goal_distance_world,
-      'goal_distance_root_normalised': goal_distance_root,
-      'is_unhealthy': 0.0
+      'goal_distance_root_normalised': goal_distance_root/self.max_root_goal_dist,
+      'is_unhealthy': 0.0,
+      'goal_reached': 0.0
     }
+
     info = {
       'goal': goal,
       'rng': rng
@@ -378,11 +380,7 @@ class MidLevelEnv(PipelineEnv):
     averaged_state = self._average_limbs(pipeline_state)
 
     # Check if unhealthy
-    min_z, max_z = self._healthy_z_range
-    is_unhealthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=1.0, y=0.0)
-    is_unhealthy = jp.where(
-        pipeline_state.x.pos[0, 2] > max_z, x=1.0, y=is_unhealthy
-    )
+    is_unhealthy = jp.where(rotate(jp.array([0, 0, 1]), pipeline_state.x.rot[0])[-1] < 0, x=1.0, y=0.0)
 
     # Compute goal distance
     goal_distance, goal_distance_root = self.goal_dist(averaged_state, goal, frame='relative', root_dist=True)
@@ -398,7 +396,7 @@ class MidLevelEnv(PipelineEnv):
     if self.distance_reward == 'absolute':
       reward = -goal_distance_world
     else:
-      reward = prev_goal_distance_world - goal_distance_world
+      reward = (prev_goal_distance_world - goal_distance_world)/self.dt
 
     reward += self.low_level_env.reward_goal_reached * goal_reached + is_unhealthy * self.low_level_env.unhealthy_cost
 
@@ -414,8 +412,9 @@ class MidLevelEnv(PipelineEnv):
       reward=reward,
       goal_distance_relative_frame_normalised=goal_distance,
       goal_distance_world_frame=goal_distance_world,
-      goal_distance_root_normalised=goal_distance_root,
-      is_unhealthy=1.0*is_unhealthy
+      goal_distance_root_normalised=goal_distance_root/self.max_root_goal_dist,
+      is_unhealthy=1.0*is_unhealthy,
+      goal_reached=1.0*goal_reached
     )
 
     state.info.update(

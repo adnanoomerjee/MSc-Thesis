@@ -13,7 +13,7 @@ from IPython.display import HTML, clear_output
 from hct import training
 from hct import envs
 
-from hct.training.hyperparam_sweeps.low_level_env_mlp.run import FINAL_LOW_LEVEL_ENV_PARAMETERS, FINAL_LOW_LEVEL_TRAINING_PARAMETERS
+from hct.training.hyperparam_sweeps.low_level_env_mlp.run import FINAL2_LOW_LEVEL_ENV_PARAMETERS, LOW_LEVEL_TRAINING_PARAMETERS
 
 import flax
 
@@ -106,10 +106,10 @@ def main(argv):
 
   env_params, training_params = hyperparam_sweep_fn()
 
-  env_p = FINAL_LOW_LEVEL_ENV_PARAMETERS #env_params[config]
-  train_p = FINAL_LOW_LEVEL_TRAINING_PARAMETERS #training_params[config]
+  env_p = FINAL2_LOW_LEVEL_ENV_PARAMETERS #env_params[config]
+  train_p = LOW_LEVEL_TRAINING_PARAMETERS #training_params[config]
 
-  training_run(env_name='LowLevel', env_parameters=env_p, train_parameters=train_p, variant_name='final_low_level', filepath=savepath)
+  training_run(env_name='LowLevel', env_parameters=env_p, train_parameters=train_p, variant_name='additional_low_level', filepath=savepath)
 
 if __name__== '__main__':
   app.run(main)

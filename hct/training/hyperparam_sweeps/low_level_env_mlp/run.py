@@ -19,8 +19,8 @@ from pathlib import Path
 
 """Low level training run parameters"""
 
-filepath = Path('/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/runs')
-
+filepath = Path('/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/runs2')
+'''
 LOW_LEVEL_ENV_PARAMETERS = {
     'position_goals': (True, False),
     'velocity_goals': (None, 'root', 'full'),
@@ -28,7 +28,7 @@ LOW_LEVEL_ENV_PARAMETERS = {
     'unhealthy_cost': (0, -1),
     'air_probability': (0.1, 0.3),
     'distance_reward': ('absolute', 'relative')
-    }
+    }'''
 
 ADDITIONAL_LOW_LEVEL_ENV_PARAMETERS = {
     'position_goals': True,
@@ -49,6 +49,15 @@ ADDITIONAL_LOW_LEVEL_ENV_PARAMETERS_2 = {
     'distance_reward': ['absolute']
     }
 
+LOW_LEVEL_ENV_PARAMETERS = {
+    'position_goals': (True),
+    'velocity_goals': (None),
+    'reward_goal_reached': (0, 50, 100),
+    'unhealthy_cost': (0, -1),
+    'distance_reward': ('absolute', 'relative'),
+    'architecture_configs': [DEFAULT_MLP_CONFIGS]
+    }
+
 LOW_LEVEL_TRAINING_PARAMETERS = {
     'num_timesteps':300_000_000, 
     'num_envs':2048, 
@@ -56,13 +65,13 @@ LOW_LEVEL_TRAINING_PARAMETERS = {
     'learning_rate':3e-4, 
     'entropy_cost':1e-2,
     'discounting':0.97, # trial 0.97 vs 0.99, 0.97 better
-    'gradient_clipping':1.0, # trial 1.0 vs 1000000, 1.0 better
+    'gradient_clipping':1.0, 
     'seed':5,
     'unroll_length':5,
     'batch_size':2048, 
     'num_minibatches':32,
     'num_updates_per_batch':4,
-    'num_evals':150, 
+    'num_evals':102, 
     'normalize_observations':True,
     'reward_scaling':10,
     'clipping_epsilon':.3,
@@ -80,28 +89,16 @@ FINAL_LOW_LEVEL_ENV_PARAMETERS = {
     'architecture_configs': LARGE_MLP_CONFIGS
     }
 
-FINAL_LOW_LEVEL_TRAINING_PARAMETERS = {
-    'num_timesteps':1_000_000_000, 
-    'num_envs':2048, 
-    'max_devices_per_host':None,
-    'learning_rate':3e-4, 
-    'entropy_cost':1e-2,
-    'discounting':0.97, # trial 0.97 vs 0.99, 0.97 better
-    'gradient_clipping':1.0, # trial 1.0 vs 1000000, 1.0 better
-    'seed':5,
-    'unroll_length':5,
-    'batch_size':2048, 
-    'num_minibatches':32,
-    'num_updates_per_batch':4,
-    'num_evals':150, 
-    'normalize_observations':True,
-    'reward_scaling':10,
-    'clipping_epsilon':.3,
-    'gae_lambda':.95,
-    'deterministic_eval':False,
-    'normalize_advantage':True
-}
+FINAL2_LOW_LEVEL_ENV_PARAMETERS = {
+    'position_goals': True,
+    'velocity_goals': None,
+    'reward_goal_reached': 0,
+    'unhealthy_cost': -1,
+    'distance_reward': 'absolute',
+    'architecture_configs': LARGE_MLP_CONFIGS
+    }
 
+'''
 def hyperparameter_sweep():
     # Special handling for 'position_goals' and 'velocity_goals'
     pos_vel_combinations = [(True, v) for v in LOW_LEVEL_ENV_PARAMETERS['velocity_goals']] + [(False, 'full')]
@@ -153,6 +150,17 @@ def hyperparameter_sweep():
             env_parameters.append(combined_dict)
     
 
+    training_parameters = [LOW_LEVEL_TRAINING_PARAMETERS for p in env_parameters]
+    return env_parameters, training_parameters
+'''
+
+def hyperparameter_sweep():
+    # Special handling for 'position_goals' and 'velocity_goals'
+    params = LOW_LEVEL_ENV_PARAMETERS
+    param_names = params.keys()
+    param_values = params.values()
+    combinations = list(itertools.product(*param_values))
+    env_parameters = [dict(zip(param_names, combination)) for combination in combinations]
     training_parameters = [LOW_LEVEL_TRAINING_PARAMETERS for p in env_parameters]
     return env_parameters, training_parameters
 

@@ -1,16 +1,21 @@
 from hct.envs.ant_test import AntTest
 from hct.envs.low_level_env import LowLevelEnv
 from hct.envs.mid_level_env import MidLevelEnv
-from hct.envs.flat_env import FlatEnv
+from hct.envs.maze.flat_env import FlatMazeEnv
+from hct.envs.hurdles_gaps.flat_env import FlatHurdlesGapsEnv
 
 from hct.envs.test import test
 
 from brax.envs.base import Env
 
+import functools
+
 
 _envs = {
     'AntTest': AntTest,
-    'FlatEnv': FlatEnv,
+    'FlatMazeEnv': FlatMazeEnv,
+    'FlatHurdlesEnv': functools.partial(FlatHurdlesGapsEnv, task='ant_hurdles'),
+    'FlatGapsEnv': functools.partial(FlatHurdlesGapsEnv, task='ant_gaps'),
     'LowLevel': LowLevelEnv,
     'MidLevel': MidLevelEnv,
     

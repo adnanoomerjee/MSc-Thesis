@@ -1,0 +1,90 @@
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 116, in <module>
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+    _run_main(main, args)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 108, in main
+    env_params, training_params = hyperparameter_sweep()
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/run.py", line 162, in hyperparameter_sweep
+    combinations = list(itertools.product(*param_values))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'bool' object is not iterable
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 116, in <module>
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 116, in <module>
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 116, in <module>
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+    _run_main(main, args)
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+    _run_main(main, args)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 108, in main
+    _run_main(main, args)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 108, in main
+    env_params, training_params = hyperparameter_sweep()
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/run.py", line 162, in hyperparameter_sweep
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 108, in main
+    env_params, training_params = hyperparameter_sweep()
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/run.py", line 162, in hyperparameter_sweep
+    combinations = list(itertools.product(*param_values))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'bool' object is not iterable
+    env_params, training_params = hyperparameter_sweep()
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/run.py", line 162, in hyperparameter_sweep
+    combinations = list(itertools.product(*param_values))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'bool' object is not iterable
+    combinations = list(itertools.product(*param_values))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'bool' object is not iterable
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 116, in <module>
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+    _run_main(main, args)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 108, in main
+    env_params, training_params = hyperparameter_sweep()
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/run.py", line 162, in hyperparameter_sweep
+    combinations = list(itertools.product(*param_values))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'bool' object is not iterable
+Traceback (most recent call last):
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 116, in <module>
+    app.run(main)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 308, in run
+    _run_main(main, args)
+  File "/nfs/nhome/live/aoomerjee/mambaforge/envs/msc-thesis-hpc/lib/python3.11/site-packages/absl/app.py", line 254, in _run_main
+    sys.exit(main(argv))
+             ^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py", line 108, in main
+    env_params, training_params = hyperparameter_sweep()
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/run.py", line 162, in hyperparameter_sweep
+    combinations = list(itertools.product(*param_values))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'bool' object is not iterable
