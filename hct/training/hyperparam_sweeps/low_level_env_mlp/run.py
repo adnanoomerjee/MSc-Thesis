@@ -30,7 +30,7 @@ LOW_LEVEL_ENV_PARAMETERS = {
     'distance_reward': ('absolute', 'relative')
     }'''
 
-ADDITIONAL_LOW_LEVEL_ENV_PARAMETERS = {
+'''ADDITIONAL_LOW_LEVEL_ENV_PARAMETERS = {
     'position_goals': True,
     'velocity_goals': 'root',
     'goal_root_pos_masked': [True],
@@ -47,16 +47,15 @@ ADDITIONAL_LOW_LEVEL_ENV_PARAMETERS_2 = {
     'unhealthy_cost': [-1],
     'air_probability': [0.1],
     'distance_reward': ['absolute']
-    }
+    }'''
 
 LOW_LEVEL_ENV_PARAMETERS = {
-    'position_goals': (True),
-    'velocity_goals': (None),
-    'reward_goal_reached': (0, 50, 100),
-    'unhealthy_cost': (0, -1),
+    'position_goals': (True, False),
+    'velocity_goals': (None, 'root', 'full'),
     'distance_reward': ('absolute', 'relative'),
-    'architecture_configs': [DEFAULT_MLP_CONFIGS]
+    'architecture_configs': [DEFAULT_MLP_CONFIGS, LARGE_MLP_CONFIGS, VLARGE_MLP_CONFIGS]
     }
+
 
 LOW_LEVEL_TRAINING_PARAMETERS = {
     'num_timesteps':300_000_000, 
@@ -155,13 +154,28 @@ def hyperparameter_sweep():
 '''
 
 def hyperparameter_sweep():
-    # Special handling for 'position_goals' and 'velocity_goals'
-    params = LOW_LEVEL_ENV_PARAMETERS
-    param_names = params.keys()
-    param_values = params.values()
-    combinations = list(itertools.product(*param_values))
-    env_parameters = [dict(zip(param_names, combination)) for combination in combinations]
+
+    pos_vel_combinations = [(True, v) for v in LOW_LEVEL_ENV_PARAMETERS['velocity_goals']] + [(False, 'full')]
+
+    # Get other parameters
+    other_params = {key: value for key, value in LOW_LEVEL_ENV_PARAMETERS.items() if key not in ['position_goals', 'velocity_goals']}
+    other_param_names = other_params.keys()
+    other_param_values = other_params.values()
+
+    # Generate all combinations of the other parameters
+    other_param_combinations = list(itertools.product(*other_param_values))
+
+    env_parameters = []
+    # Combine 'pos_vel_combinations' with 'other_param_combinations'
+    for pos_vel in pos_vel_combinations:
+        for other in other_param_combinations:
+            combined_dict = {'position_goals': pos_vel[0], 'velocity_goals': pos_vel[1]}
+            for i, name in enumerate(other_param_names):
+                combined_dict[name] = other[i]
+            env_parameters.append(combined_dict)
+
     training_parameters = [LOW_LEVEL_TRAINING_PARAMETERS for p in env_parameters]
+    
     return env_parameters, training_parameters
 
 def generate_data_tables():

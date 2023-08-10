@@ -49,9 +49,6 @@ def actor_step(
     nstate_var = nstate.pipeline_state
   else:
     nstate_var = None
-    #step = nstate.info['eval_metrics'].episode_steps[-1].astype(int)
-    #running_state = env_state.info['state']
-    #nstate.info.update(state=jax.tree_map(lambda x, y: x.at[:, step, ...].set(y), running_state, nstate.pipeline_state))
   return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
       observation=env_state.obs,
       action=actions,

@@ -5,13 +5,14 @@
 #SBATCH --partition=gpu
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=0-24:00
-#SBATCH --mem=10G      
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:rtx5000:2
 #SBATCH --requeue
+#SBATCH --exclusive
 #SBATCH --export=ALL
+
 
 
 
 source ~/.bashrc
 conda activate msc-thesis-hpc
-python3 /nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/low_level_env_mlp/training.py --config $1
+python3 /nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/high_level_env_gaps/training.py --config 1

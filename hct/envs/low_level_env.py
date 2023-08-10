@@ -169,19 +169,18 @@ class LowLevelEnv(PipelineEnv):
     goalsampler_root_rot_range: jp.ndarray = jp.array([[-jp.pi,jp.pi], [0, jp.pi/12], [-jp.pi,jp.pi]]),
     obs_mask: Optional[jp.ndarray] = None,
     distance_reward: Literal['difference', 'absolute'] = 'absolute',
-    terminate_when_unhealthy=False,
     terminate_when_goal_reached=True,
-    unhealthy_cost=0, # trial 0, -1.0, current best 0
+    unhealthy_cost=0, 
     healthy_z_range=(0.251, 10),
-    air_probability=0.2, # trial 0.1, 0.3, current best 0.1
-    goal_distance_epsilon = 0.001, 
-    reset_noise_scale=0.1,
+    air_probability=0.2, 
+    goal_distance_epsilon = 0.003, 
+    reset_noise_scale=0,
     rot_dist=True,
     backend='positional',
     architecture_name='MLP',
     architecture_configs=DEFAULT_MLP_CONFIGS, # trial larger network
     ctrl_cost=0.0, 
-    reward_goal_reached=50, # trial 0, 50, 100, 
+    reward_goal_reached=0, 
     **kwargs
   ):
 
@@ -224,7 +223,7 @@ class LowLevelEnv(PipelineEnv):
     self.reward_goal_reached = reward_goal_reached
 
     # Termination attributes
-    self._terminate_when_unhealthy = terminate_when_unhealthy
+    self._terminate_when_unhealthy = True if distance_reward == 'relative' else False
     self._terminate_when_goal_reached = terminate_when_goal_reached
     self.goal_distance_epsilon = goal_distance_epsilon
     self._healthy_z_range = healthy_z_range

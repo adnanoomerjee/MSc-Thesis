@@ -61,9 +61,11 @@ def test(env: Env, iterations: int = 1, jit = True):
 
     return jit_reset, jit_step, reset_states, step_states, reset_times
 
-def rollout(modelpath, seed = 1, test = False, batch_size = 64):
+def rollout(modelpath, seed = 1, test = False, batch_size = 64, environment = None):
   
     env = load(f"{modelpath}/env")
+    if environment is not None:
+       env = environment
 
     network = load(f"{modelpath}/network")
     params = load(f"{modelpath}/model_params")

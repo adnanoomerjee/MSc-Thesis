@@ -9,6 +9,7 @@ from hct.envs.tools import *
 from hct.envs.ant_test import AntTest
 from hct.training.configs import NetworkArchitecture, SMALL_TRANSFORMER_CONFIGS, DEFAULT_MLP_CONFIGS
 from hct.io import model
+from hct.envs.maze.maze_attributes import *
 
 from brax import base, generalized
 from brax.envs.base import Env, PipelineEnv, State
@@ -157,16 +158,12 @@ class FlatMazeEnv(PipelineEnv):
 
   def __init__(
     self,
-    terminate_when_unhealthy=True,
-    terminate_when_goal_reached=True,
-    unhealthy_cost=-5000.0, # trial 0, -1.0, current best 0
     reward_per_milestone = 20,
-    healthy_z_range=(0.255, 10),
-    reset_noise_scale=0.1,
     architecture_name='MLP',
     architecture_configs=DEFAULT_MLP_CONFIGS, # trial larger network
-    ctrl_cost=0.0, 
     reward_sparsity = 5,
+    reward_type: Literal['sparse', 'dense'] = 'sparse',
+    reward_movement: Literal['position', 'velocity'] = 'velocity',
     **kwargs
   ):
 
@@ -205,19 +202,14 @@ class FlatMazeEnv(PipelineEnv):
     self.link_parents = sys.link_parents
 
     # Reward attributes
-    self.unhealthy_cost = unhealthy_cost
-    self.ctrl_cost = ctrl_cost
     self.reward_milestone = reward_sparsity * reward_per_milestone
     self.reward_goal_reached = self.reward_milestone * 5
     self.reward_sparsity = reward_sparsity
+    self.reward_type = reward_type
+    self.reward_movement = reward_movement
 
     # Termination attributes
-    self._terminate_when_unhealthy = terminate_when_unhealthy
-    self._terminate_when_goal_reached = terminate_when_goal_reached
-    self._healthy_z_range = healthy_z_range
-
-    # Reset attributes
-    self._reset_noise_scale = reset_noise_scale
+    self._terminate_when_unhealthy = True if self.reward_type == 'dense' and self.reward_movement == 'velocity' else False
     
     self.non_actuator_nodes = 0 
     self.action_mask = None
@@ -239,46 +231,29 @@ class FlatMazeEnv(PipelineEnv):
         self.concat_obs_width = concat_obs_width
 
     self.action_repeat = 1
-    self.episode_length = 5000
+    self.episode_length = 1000
     self.action_shape = (8, 1)
 
-    self.maze_coordinate_values = -jp.array([
-      [0., 19., 18., 17., 18.],
-      [1.,  2., 15., 16., 19.],
-      [4.,  3., 14., 13., 20.],
-      [5.,  8.,  9., 12., 21.],
-      [6.,  7., 10., 11., 22.],
-    ])
-
-    self.dense_reward_axis = -jp.array([
-      [0, 0, 0, -1, 0],
-      [1, 0, -1, 0, 1],
-      [0, 1, 0, -1, 1],
-      [1, -1,  0, -1, 1],
-      [1, 0, 1, 0, 1],
-    ], dtype=jp.int32)
     logging.info('Environment initialised.')
 
   def reset(self, rng: jp.ndarray) -> State:
     """Resets the environment to an initial state."""
 
-    rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
-
-    low, hi = -self._reset_noise_scale, self._reset_noise_scale
-
     q = self.sys.init_q 
-
-    qd = 0 * hi * jax.random.normal(rng2, (self.sys.qd_size(),))
+    qd = qd = jp.zeros((self.sys.qd_size(),))
 
     pipeline_state = self.pipeline_init(q, qd)
 
-    maze_coord, state_value = self.get_maze_coordinates(pipeline_state)
+    maze_coord, state_value, xy_pos, next_cell = self.get_maze_coordinates(pipeline_state)
 
     # Get observation
     obs = self.get_obs(pipeline_state)
     
     # Set metrics
     done, reward = jp.array([0.0, -1.0])
+
+    if self.reward_type == 'dense':
+      reward = -22.0 if self.reward_movement == 'position' else 0.0
 
     metrics = {
       'reward': reward,
@@ -308,15 +283,12 @@ class FlatMazeEnv(PipelineEnv):
     pipeline_state = self.pipeline_step(prev_pipeline_state, action)
 
     # Check if unhealthy
-    min_z, max_z = self._healthy_z_range
-    is_unhealthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=1.0, y=0.0)
-    is_unhealthy = jp.where(
-        pipeline_state.x.pos[0, 2] > max_z, x=1.0, y=is_unhealthy
-    )
+    is_unhealthy = jp.where(rotate(jp.array([0, 0, 1]), pipeline_state.x.rot[0])[-1] < 0, x=1.0, y=0.0)
 
-    maze_coord, state_value = self.get_maze_coordinates(pipeline_state)
+    maze_coord, state_value, xy_pos, next_cell = get_maze_coordinates(pipeline_state)
 
     prev_reward_distance = state.info['prev_reward_distance']
+
     distance_to_end = -state_value
 
     # Get observation
@@ -326,10 +298,18 @@ class FlatMazeEnv(PipelineEnv):
     goal_reached = state_value == 0
     milestone_reached =  prev_reward_distance - distance_to_end >= self.reward_sparsity
 
-    reward = self.reward_milestone * milestone_reached + self.reward_goal_reached * goal_reached 
-    reward -= 1 * (1 - jp.logical_or(milestone_reached, goal_reached))
-    reward += self.unhealthy_cost * is_unhealthy
-    
+    if self.reward_type == 'sparse':
+      reward = self.reward_milestone * milestone_reached + self.reward_goal_reached * goal_reached 
+      reward -= 1 * (1 - jp.logical_or(milestone_reached, goal_reached))
+      reward += self.unhealthy_cost * is_unhealthy
+    else:
+      next_cell_centroid = cell_centroid[*next_cell]
+      if self.reward_movement == 'position':
+        next_cell_value = maze_cell_values[*next_cell]
+        reward = next_cell_value - safe_norm(xy_pos - next_cell_centroid)
+      else:
+        reward = jp.dot(pipeline_state.xd.vel[0, :2], normalize(next_cell_centroid - xy_pos)[0])
+
     prev_reward_distance = distance_to_end * milestone_reached + prev_reward_distance * (1-milestone_reached)
 
     if self._terminate_when_unhealthy:
@@ -347,7 +327,7 @@ class FlatMazeEnv(PipelineEnv):
       maze_column=maze_coord[1],
       distance_to_end=distance_to_end,
       is_unhealthy=1.0*is_unhealthy,
-      task_complete=goal_reached
+      task_complete=1.0*goal_reached
     )
     return state.replace(
       pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
@@ -379,15 +359,6 @@ class FlatMazeEnv(PipelineEnv):
       obs = obs.reshape(*obs.shape[:-2], -1)
 
     return obs
-
-  def get_maze_coordinates(self, state: base.State):
-    xy = jp.mean(state.x.pos[:, :2], axis=0)
-    xpos, ypos = xy
-    column = (1 + (xpos + 10) // 4 + (abs(xpos) == 2))
-    row = (5 - (ypos + 10) // 4 + (abs(ypos) == 2))
-    coords =  (row, column)
-    value = self.maze_coordinate_values[row.astype(int)-1, column.astype(int)-1]
-    return coords, value
 
   def _world_to_relative(self, state: base.State):
     return world_to_relative(state, self)

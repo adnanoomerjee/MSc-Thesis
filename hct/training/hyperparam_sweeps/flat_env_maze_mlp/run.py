@@ -29,9 +29,21 @@ FLAT_ENV_PARAMETERS_LARGE = {
     'architecture_configs': [LARGE_MLP_CONFIGS]
     }
 
+FLAT_ENV_DENSE = {
+    'reward_type': ['dense'],
+    'architecture_configs': [DEFAULT_MLP_CONFIGS, LARGE_MLP_CONFIGS, VLARGE_MLP_CONFIGS]
+}
+
+FLAT_ENV_DENSEVEL = {
+    'reward_type': ['dense'],
+    'reward_movement': 'velocity',
+    'architecture_configs': [DEFAULT_MLP_CONFIGS, LARGE_MLP_CONFIGS, VLARGE_MLP_CONFIGS]
+}
+
+
 
 FLAT_TRAINING_PARAMETERS = {
-    'num_timesteps':100_000_000, 
+    'num_timesteps':700_000_000, 
     'num_envs':2048, 
     'max_devices_per_host':None,
     'learning_rate':3e-4, 
@@ -43,7 +55,7 @@ FLAT_TRAINING_PARAMETERS = {
     'batch_size':2048, 
     'num_minibatches':32,
     'num_updates_per_batch':4,
-    'num_evals':150, 
+    'num_evals':102, 
     'normalize_observations':True,
     'reward_scaling':10,
     'clipping_epsilon':.3,
@@ -66,7 +78,21 @@ def hyperparameter_sweep():
     param_values = params.values()
     combinations = list(itertools.product(*param_values))
     env_parameters += [dict(zip(param_names, combination)) for combination in combinations]
+
+    params = FLAT_ENV_DENSE
+    param_names = params.keys()
+    param_values = params.values()
+    combinations = list(itertools.product(*param_values))
+    env_parameters += [dict(zip(param_names, combination)) for combination in combinations]
     training_parameters = [FLAT_TRAINING_PARAMETERS for p in env_parameters]
+
+    params = FLAT_ENV_DENSEVEL
+    param_names = params.keys()
+    param_values = params.values()
+    combinations = list(itertools.product(*param_values))
+    env_parameters += [dict(zip(param_names, combination)) for combination in combinations]
+    training_parameters = [FLAT_TRAINING_PARAMETERS for p in env_parameters]
+
     return env_parameters, training_parameters
 
 def generate_data_tables():
