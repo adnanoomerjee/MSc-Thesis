@@ -1,157 +1,30 @@
-# Copyright 2023 The Brax Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# pylint:disable=g-multiple-import
-"""Trains an ant to run in the +x direction."""
-#import sys
-#sys.path.insert(0, "/nfs/nhome/live/aoomerjee/MSc-Thesis/")
+## pylint:disable=g-multiple-import
+"""Creates an environment for the lowest level of a hierarchical framework"""
+import sys
+import inspect
 import os
 
-from brax import base
-from brax import math
-from brax.envs.base import PipelineEnv, State
+from hct.envs.goal import Goal
+from hct.envs.tools import *
+from hct.training.configs import NetworkArchitecture, SMALL_TRANSFORMER_CONFIGS, DEFAULT_MLP_CONFIGS
+from hct.io import model, html
+
+from brax import base, generalized, math
+from brax.envs.base import Env, PipelineEnv, State
+from brax.io import mjcf
 from brax.kinematics import forward
-from brax.io import mjcf, html
+
 from etils import epath
+
 import jax
 from jax import numpy as jp
 
-from hct.envs.tools import world_to_relative, safe_norm, concatenate_attrs, dist_quat, quaternion_to_spherical
-from hct.io import model
+from typing import Optional, Literal, Tuple
 
-from typing import Literal
-
-from functools import partial
+from absl import logging
 
 
 class AntTest(PipelineEnv):
-
-
-
-  # pyformat: disable
-  """
-  ### Description
-
-  This environment is based on the environment introduced by Schulman, Moritz,
-  Levine, Jordan and Abbeel in
-  ["High-Dimensional Continuous Control Using Generalized Advantage Estimation"](https://arxiv.org/abs/1506.02438).
-
-  The ant is a 3D robot consisting of one torso (free rotational body) with four
-  legs attached to it with each leg having two links.
-
-  The goal is to coordinate the four legs to move in the forward (right)
-  direction by applying torques on the eight hinges connecting the two links of
-  each leg and the torso (nine parts and eight hinges).
-
-  ### Action Space
-
-  The agent take a 8-element vector for actions.
-
-  The action space is a continuous `(action, action, action, action, action,
-  action, action, action)` all in `[-1, 1]`, where `action` represents the
-  numerical torques applied at the hinge joints.
-
-  | Num | Action                                                             | Control Min | Control Max | Name (in corresponding config)   | Joint | Unit         |
-  |-----|--------------------------------------------------------------------|-------------|-------------|----------------------------------|-------|--------------|
-  | 0   | Torque applied on the rotor between the torso and front left hip   | -1          | 1           | hip_1 (front_left_leg)           | hinge | torque (N m) |
-  | 1   | Torque applied on the rotor between the front left two links       | -1          | 1           | ankle_1 (front_left_leg)         | hinge | torque (N m) |
-  | 2   | Torque applied on the rotor between the torso and front right hip  | -1          | 1           | hip_2 (front_right_leg)          | hinge | torque (N m) |
-  | 3   | Torque applied on the rotor between the front right two links      | -1          | 1           | ankle_2 (front_right_leg)        | hinge | torque (N m) |
-  | 4   | Torque applied on the rotor between the torso and back left hip    | -1          | 1           | hip_3 (back_leg)                 | hinge | torque (N m) |
-  | 5   | Torque applied on the rotor between the back left two links        | -1          | 1           | ankle_3 (back_leg)               | hinge | torque (N m) |
-  | 6   | Torque applied on the rotor between the torso and back right hip   | -1          | 1           | hip_4 (right_back_leg)           | hinge | torque (N m) |
-  | 7   | Torque applied on the rotor between the back right two links       | -1          | 1           | ankle_4 (right_back_leg)         | hinge | torque (N m) |
-
-  ### Observation Space
-
-  The state space consists of positional values of different body parts of the
-  ant, followed by the velocities of those individual parts (their derivatives)
-  with all the positions ordered before all the velocities.
-
-  The observation is a `ndarray` with shape `(27,)` where the elements correspond to the following:
-
-  | Num | Observation                                                  | Min  | Max | Name (in corresponding config)   | Joint | Unit                     |
-  |-----|--------------------------------------------------------------|------|-----|----------------------------------|-------|--------------------------|
-  | 0   | z-coordinate of the torso (centre)                           | -Inf | Inf | torso                            | free  | position (m)             |
-  | 1   | w-orientation of the torso (centre)                          | -Inf | Inf | torso                            | free  | angle (rad)              |
-  | 2   | x-orientation of the torso (centre)                          | -Inf | Inf | torso                            | free  | angle (rad)              |
-  | 3   | y-orientation of the torso (centre)                          | -Inf | Inf | torso                            | free  | angle (rad)              |
-  | 4   | z-orientation of the torso (centre)                          | -Inf | Inf | torso                            | free  | angle (rad)              |
-  | 5   | angle between torso and first link on front left             | -Inf | Inf | hip_1 (front_left_leg)           | hinge | angle (rad)              |
-  | 6   | angle between the two links on the front left                | -Inf | Inf | ankle_1 (front_left_leg)         | hinge | angle (rad)              |
-  | 7   | angle between torso and first link on front right            | -Inf | Inf | hip_2 (front_right_leg)          | hinge | angle (rad)              |
-  | 8   | angle between the two links on the front right               | -Inf | Inf | ankle_2 (front_right_leg)        | hinge | angle (rad)              |
-  | 9   | angle between torso and first link on back left              | -Inf | Inf | hip_3 (back_leg)                 | hinge | angle (rad)              |
-  | 10  | angle between the two links on the back left                 | -Inf | Inf | ankle_3 (back_leg)               | hinge | angle (rad)              |
-  | 11  | angle between torso and first link on back right             | -Inf | Inf | hip_4 (right_back_leg)           | hinge | angle (rad)              |
-  | 12  | angle between the two links on the back right                | -Inf | Inf | ankle_4 (right_back_leg)         | hinge | angle (rad)              |
-  | 13  | x-coordinate velocity of the torso                           | -Inf | Inf | torso                            | free  | velocity (m/s)           |
-  | 14  | y-coordinate velocity of the torso                           | -Inf | Inf | torso                            | free  | velocity (m/s)           |
-  | 15  | z-coordinate velocity of the torso                           | -Inf | Inf | torso                            | free  | velocity (m/s)           |
-  | 16  | x-coordinate angular velocity of the torso                   | -Inf | Inf | torso                            | free  | angular velocity (rad/s) |
-  | 17  | y-coordinate angular velocity of the torso                   | -Inf | Inf | torso                            | free  | angular velocity (rad/s) |
-  | 18  | z-coordinate angular velocity of the torso                   | -Inf | Inf | torso                            | free  | angular velocity (rad/s) |
-  | 19  | angular velocity of angle between torso and front left link  | -Inf | Inf | hip_1 (front_left_leg)           | hinge | angle (rad)              |
-  | 20  | angular velocity of the angle between front left links       | -Inf | Inf | ankle_1 (front_left_leg)         | hinge | angle (rad)              |
-  | 21  | angular velocity of angle between torso and front right link | -Inf | Inf | hip_2 (front_right_leg)          | hinge | angle (rad)              |
-  | 22  | angular velocity of the angle between front right links      | -Inf | Inf | ankle_2 (front_right_leg)        | hinge | angle (rad)              |
-  | 23  | angular velocity of angle between torso and back left link   | -Inf | Inf | hip_3 (back_leg)                 | hinge | angle (rad)              |
-  | 24  | angular velocity of the angle between back left links        | -Inf | Inf | ankle_3 (back_leg)               | hinge | angle (rad)              |
-  | 25  | angular velocity of angle between torso and back right link  | -Inf | Inf | hip_4 (right_back_leg)           | hinge | angle (rad)              |
-  | 26  | angular velocity of the angle between back right links       | -Inf | Inf | ankle_4 (right_back_leg)         | hinge | angle (rad)              |
-
-  The (x,y,z) coordinates are translational DOFs while the orientations are
-  rotational DOFs expressed as quaternions.
-
-  ### Rewards
-
-  The reward consists of three parts:
-
-  - *reward_survive*: Every timestep that the ant is alive, it gets a reward of
-    1.
-  - *reward_forward*: A reward of moving forward which is measured as
-    *(x-coordinate before action - x-coordinate after action)/dt*. *dt* is the
-    time between actions - the default *dt = 0.05*. This reward would be
-    positive if the ant moves forward (right) desired.
-  - *reward_ctrl*: A negative reward for penalising the ant if it takes actions
-    that are too large. It is measured as *coefficient **x**
-    sum(action<sup>2</sup>)* where *coefficient* is a parameter set for the
-    control and has a default value of 0.5.
-  - *contact_cost*: A negative reward for penalising the ant if the external
-    contact force is too large. It is calculated *0.5 * 0.001 *
-    sum(clip(external contact force to [-1,1])<sup>2</sup>)*.
-
-  ### Starting State
-
-  All observations start in state (0.0, 0.0,  0.75, 1.0, 0.0  ... 0.0) with a
-  uniform noise in the range of [-0.1, 0.1] added to the positional values and
-  standard normal noise with 0 mean and 0.1 standard deviation added to the
-  velocity values for stochasticity.
-
-  Note that the initial z coordinate is intentionally selected to be slightly
-  high, thereby indicating a standing up ant. The initial orientation is
-  designed to make it face forward as well.
-
-  ### Episode Termination
-
-  The episode terminates when any of the following happens:
-
-  1. The episode duration reaches a 1000 timesteps
-  2. The y-orientation (index 2) in the state is **not** in the range
-     `[0.2, 1.0]`
-  """
-  # pyformat: enable
 
 
   def __init__(
@@ -165,10 +38,16 @@ class AntTest(PipelineEnv):
       contact_force_range=(-1.0, 1.0),
       reset_noise_scale=0.1,
       exclude_current_positions_from_observation=True,
-      backend='generalized',
+      backend='positional',
+      architecture_configs=None,
       **kwargs,
   ):
-    path = epath.resource_path('hct') / f'envs/assets/ant_test.xml'
+    frame = inspect.currentframe()
+    args, _, _, values = inspect.getargvalues(frame)
+    self.parameters = {arg: values[arg] for arg in args}
+    self.parameters.pop('self')
+  
+    path = epath.resource_path('hct') / f'envs/assets/ant.xml'
     sys = mjcf.load(path)
 
     n_frames = 5
@@ -178,11 +57,10 @@ class AntTest(PipelineEnv):
       n_frames = 10
 
     if backend == 'positional':
-      # TODO: does the same actuator strength work as in spring
       sys = sys.replace(
-          actuator=sys.actuator.replace(
-              gear=200 * jp.ones_like(sys.actuator.gear)
-          )
+        actuator=sys.actuator.replace(
+          gear=200 * jp.ones_like(sys.actuator.gear)
+        )
       )
 
     kwargs['n_frames'] = kwargs.get('n_frames', n_frames)
@@ -201,72 +79,95 @@ class AntTest(PipelineEnv):
         exclude_current_positions_from_observation
     )
 
+    # Training attributes
+    self.obs_mask = None
+    self.non_actuator_nodes = None
+    self.action_mask = None
+    self.num_nodes = 9
+
+    # Network architecture
+    self.network_architecture = NetworkArchitecture.create(name='MLP', **DEFAULT_MLP_CONFIGS)
+    self.max_actions_per_node = 1 if self.network_architecture.name=='Transformer' else 8
+
+    self.action_repeat = 1
+    self.horizon = 72
+    self.episode_length = 1000
+    self.action_shape = (8, 1)
+
+
+    self.episode_length = 1000
     if self._use_contact_forces:
       raise NotImplementedError('use_contact_forces not implemented.')
 
-  def reset(self, limit_id: int) -> State:
+  def reset(self, rng) -> State:
     """Resets the environment to an initial state."""
 
-    joint_angles = jax.lax.select(limit_id==0, jp.array(self.sys.dof.limit[0]), jp.array(self.sys.dof.limit[1]))
-    q = jp.concatenate([jp.array([0,0,0,1,0,0,0]), joint_angles[6:]])
-    qd = jp.zeros((self.sys.qd_size(),))
-    
-    if limit_id is None:
-      q = self.sys.init_q
 
-    pipeline_state = self.pipeline_init(q, qd)
+    pipeline_state = self._sample_state(rng)
     obs = self._get_obs(pipeline_state)
 
     reward, done, zero = jp.zeros(3)
+
+    zeros = jp.zeros((self.action_size,))
     metrics = {
-        'reward_forward': zero,
-        'reward_survive': zero,
-        'reward_ctrl': zero,
-        'reward_contact': zero,
-        'x_position': zero,
-        'y_position': zero,
-        'distance_from_origin': zero,
-        'x_velocity': zero,
-        'y_velocity': zero,
-        'forward_reward': zero,
+      'reward': zero
     }
-    return State(pipeline_state, obs, reward, done, metrics)
+
+    info = {
+      'rng': jax.random.split(rng)[0],
+      'min_ja': zeros,
+      'max_ja': zeros,
+      'min_jv': zeros,
+      'max_jv': zeros
+    }
+
+    return State(pipeline_state, obs, reward, done, metrics, info)
 
   def step(self, state: State, action: jp.ndarray) -> State:
     """Run one timestep of the environment's dynamics."""
     pipeline_state0 = state.pipeline_state
     pipeline_state = self.pipeline_step(pipeline_state0, action)
 
-    velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
-    forward_reward = velocity[0]
+    rng, rng1 = jax.random.split(state.info['rng'])
+    prev_min_ja, prev_max_ja = state.info['min_ja'], state.info['max_ja']
+    prev_min_jv, prev_max_jv = state.info['min_jv'], state.info['max_jv']
 
-    min_z, max_z = self._healthy_z_range
-    is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=0.0, y=1.0)
-    is_healthy = jp.where(
-        pipeline_state.x.pos[0, 2] > max_z, x=0.0, y=is_healthy
-    )
+    is_healthy = jp.where(rotate(jp.array([0, 0, 1]), pipeline_state.x.rot[0])[-1] > 0, x=1.0, y=0.0)
+
     if self._terminate_when_unhealthy:
       healthy_reward = self._healthy_reward
     else:
       healthy_reward = self._healthy_reward * is_healthy
-    ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
-    contact_cost = 0.0
 
-    obs = self._get_obs(pipeline_state)
-    reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
+    ja = state.pipeline_state.q[7:]
+    jv = state.pipeline_state.qd[6:]
+
+    min_ja = jp.where(ja<prev_min_ja, x=ja, y=prev_min_ja)
+    max_ja = jp.where(ja>prev_max_ja, x=ja, y=prev_max_ja)
+    min_jv = jp.where(jv<prev_min_jv, x=jv, y=prev_min_jv)
+    max_jv = jp.where(jv>prev_max_jv, x=jv, y=prev_max_jv)
+
+    abs_cur = jp.abs(min_ja) + jp.abs(max_ja) + jp.abs(min_jv) + jp.abs(max_jv)
+    abs_prev = jp.abs(prev_min_ja) + jp.abs(prev_max_ja) + jp.abs(prev_min_jv) + jp.abs(prev_max_jv)
+
+    diff = abs_cur - abs_prev
+    reward = jp.sum(jp.square(jp.where(diff > 0, abs_cur, 0)))
+
     done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
+
+    pipeline_state  = jax.lax.cond(done, self._sample_state, lambda x: pipeline_state, rng1)
+    obs = self._get_obs(pipeline_state)
+
     state.metrics.update(
-        reward_forward=forward_reward,
-        reward_survive=healthy_reward,
-        reward_ctrl=-ctrl_cost,
-        reward_contact=-contact_cost,
-        x_position=pipeline_state.x.pos[0, 0],
-        y_position=pipeline_state.x.pos[0, 1],
-        distance_from_origin=math.safe_norm(pipeline_state.x.pos[0]),
-        x_velocity=velocity[0],
-        y_velocity=velocity[1],
-        forward_reward=forward_reward,
+      reward=reward
     )
+    state.info.update(
+      rng=rng,
+      min_ja=min_ja,
+      max_ja=max_ja,
+      min_jv=min_jv,
+      max_jv=max_jv)
+    
     return state.replace(
         pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
     )
@@ -280,19 +181,122 @@ class AntTest(PipelineEnv):
       qpos = pipeline_state.q[2:]
 
     return jp.concatenate([qpos] + [qvel])
+  
+  def _sample_state(self, rng: jp.ndarray):
+    """
+    Samples normalised goal and outputs a goal state 
+    
+    Goal is restricted to ensure a valid state, and acheive a range of positions
+    that are expected to be achieved by the optimal policy. Restictions on
+      Z position of all links
+      Root rotation
+      Number of feet in contact with ground:
+        Randomly sample an ordered subset of end effector IDs
+        Ensure that these end effectors are in contact with ground
+
+    Args:
+      rng: jp.ndarray
+
+    Returns:
+      goal: Goal
+    """
+
+    rng, rng1, rng2, rng3, rng4 = jax.random.split(rng, 5)
+
+    low, hi = -self._reset_noise_scale, self._reset_noise_scale
+
+    q = self.sys.init_q + jax.random.uniform(
+      rng3, (self.sys.q_size(),), minval=low, maxval=hi
+    )
+
+    qd = hi * jax.random.normal(rng4, (self.sys.qd_size(),))
+
+    return self.pipeline_init(q, qd)
 
   def move_limbs(self, limb_ids, actuator_force):
     return jp.zeros((self.action_size,)).at[jp.array(limb_ids)].set(actuator_force)
   
+  
   def test_rollout(self):
+        
+    path = epath.resource_path('hct') / f'envs/assets/ant_test.xml'
+    self.sys = mjcf.load(path)
+
+    def reset(limit_id: int) -> State:
+      """Resets the environment to an initial state."""
+
+      joint_angles = jax.lax.select(limit_id==0, jp.array(self.sys.dof.limit[0]), jp.array(self.sys.dof.limit[1]))
+      q = jp.concatenate([jp.array([0,0,0,1,0,0,0]), joint_angles[6:]])
+      qd = jp.zeros((self.sys.qd_size(),))
+      
+      if limit_id is None:
+        q = self.sys.init_q
+
+      pipeline_state = self.pipeline_init(q, qd)
+      obs = self._get_obs(pipeline_state)
+
+      reward, done, zero = jp.zeros(3)
+      metrics = {
+          'reward_forward': zero,
+          'reward_survive': zero,
+          'reward_ctrl': zero,
+          'reward_contact': zero,
+          'x_position': zero,
+          'y_position': zero,
+          'distance_from_origin': zero,
+          'x_velocity': zero,
+          'y_velocity': zero,
+          'forward_reward': zero,
+      }
+      return State(pipeline_state, obs, reward, done, metrics)
+
+    def step(state: State, action: jp.ndarray) -> State:
+      """Run one timestep of the environment's dynamics."""
+      pipeline_state0 = state.pipeline_state
+      pipeline_state = self.pipeline_step(pipeline_state0, action)
+
+      velocity = (pipeline_state.x.pos[0] - pipeline_state0.x.pos[0]) / self.dt
+      forward_reward = velocity[0]
+
+      min_z, max_z = self._healthy_z_range
+      is_healthy = jp.where(pipeline_state.x.pos[0, 2] < min_z, x=0.0, y=1.0)
+      is_healthy = jp.where(
+          pipeline_state.x.pos[0, 2] > max_z, x=0.0, y=is_healthy
+      )
+      if self._terminate_when_unhealthy:
+        healthy_reward = self._healthy_reward
+      else:
+        healthy_reward = self._healthy_reward * is_healthy
+      ctrl_cost = self._ctrl_cost_weight * jp.sum(jp.square(action))
+      contact_cost = 0.0
+
+      obs = self._get_obs(pipeline_state)
+      reward = forward_reward + healthy_reward - ctrl_cost - contact_cost
+      done = 1.0 - is_healthy if self._terminate_when_unhealthy else 0.0
+      state.metrics.update(
+          reward_forward=forward_reward,
+          reward_survive=healthy_reward,
+          reward_ctrl=-ctrl_cost,
+          reward_contact=-contact_cost,
+          x_position=pipeline_state.x.pos[0, 0],
+          y_position=pipeline_state.x.pos[0, 1],
+          distance_from_origin=math.safe_norm(pipeline_state.x.pos[0]),
+          x_velocity=velocity[0],
+          y_velocity=velocity[1],
+          forward_reward=forward_reward,
+      )
+      return state.replace(
+          pipeline_state=pipeline_state, obs=obs, reward=reward, done=done
+      )
+
 
     filename = '/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/envs/ranges/test_rollout'
 
     if os.path.isfile(filename):
       return model.load(filename)
 
-    jit_env_reset = jax.jit(self.reset)
-    jit_env_step = jax.jit(self.step)
+    jit_env_reset = jax.jit(reset)
+    jit_env_step = jax.jit(step)
     jit_move_limbs = jax.jit(self.move_limbs)
 
     state = jit_env_reset(limit_id=None)
@@ -325,6 +329,8 @@ class AntTest(PipelineEnv):
     output = (rollout, html.render(self.sys.replace(dt=self.dt), rollout))
 
     model.save(filename, output)
+    path = epath.resource_path('hct') / f'envs/assets/ant.xml'
+    self.sys = mjcf.load(path)
 
     return output
 

@@ -31,6 +31,7 @@ from brax.training.types import (
   PreprocessObservationFn,
   PRNGKey)
 from brax.training.networks import FeedForwardNetwork
+from absl import logging
 
 
 from flax import linen, struct
@@ -60,6 +61,7 @@ def make_inference_fn(ppo_networks: PPONetworks):
     
     policy_network = ppo_networks.policy_network
     parametric_action_distribution = ppo_networks.parametric_action_distribution
+    parametric_action_distribution.mask = action_mask
 
     def policy(observations: Observation,
                rng: PRNGKey) -> Tuple[Action, Extra]:
@@ -103,7 +105,7 @@ def make_ppo_networks(
   parametric_action_distribution = distribution.NormalTanhDistribution(
       event_size=env.max_actions_per_node, 
       network_architecture=network_architecture.name,
-      min_std=0)
+      mask=env.action_mask)
 
   if network_architecture.name == 'MLP':
     policy_network, value_network = make_mlp_model(

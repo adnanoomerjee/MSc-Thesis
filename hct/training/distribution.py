@@ -49,7 +49,7 @@ class ParametricDistribution(abc.ABC):
     assert event_ndims in [0, 1]
 
   @abc.abstractmethod
-  def create_dist(self, parameters):
+  def create_dist(self, parameters, mask):
     """Creates distribution from parameters."""
     pass
 
@@ -141,6 +141,7 @@ class NormalTanhDistribution(ParametricDistribution):
   def __init__(self, 
                event_size, 
                network_architecture: Literal['MLP', 'Transformer'],
+               mask=None,
                min_std=0.001):
     """Initialize the distribution.
 
@@ -162,8 +163,10 @@ class NormalTanhDistribution(ParametricDistribution):
         event_ndims=1,
         reparametrizable=True)
     self._min_std = min_std
+    self.mask = mask 
 
   def create_dist(self, parameters):
+    mask = self.mask if self.mask is not None else 1
     loc, scale = jnp.split(parameters, 2, axis=-1)
     scale = jax.nn.softplus(scale) + self._min_std
     return NormalDistribution(loc=loc, scale=scale)

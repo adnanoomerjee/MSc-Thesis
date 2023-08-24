@@ -121,6 +121,21 @@ class AutoResetWrapper(Wrapper):
     )
     obs = where_done(state.info['first_obs'], state.obs)
     return state.replace(pipeline_state=pipeline_state, obs=obs)
+    '''
+    rng, rng1 = jax.random.split(state.info['reset_rng'])
+    reset_state = self.env.reset(rng1)
+
+    pipeline_state = jax.tree_map(
+        where_done, reset_state.pipeline_state, state.pipeline_state
+    )
+    carry = jax.tree_map(
+        where_done, reset_state.info['carry'], state.info['carry']
+    )
+
+    state.info.update(reset_rng=rng, carry=carry)
+    obs = where_done(reset_state.obs, state.obs)
+
+    return state.replace(pipeline_state=pipeline_state, obs=obs)'''
 
 
 @struct.dataclass

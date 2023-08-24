@@ -19,6 +19,9 @@ import functools
 
 from absl import app
 
+import os
+import shutil
+
 from typing import Literal
 
 import matplotlib.pyplot as plt
@@ -31,26 +34,51 @@ def aggregate(x, axis=0):
   stderr = std / jp.sqrt(x.shape[axis])
   return {'mean': mean, 'std': std, 'stderr': stderr}
 
+def get_training_metrics(modelpath):
+    
+    training_metrics = load(f"{modelpath}/training_metrics")
+    training_metrics.pop('model_variant_name')
+
+    training_steps = []
+    metrics_per_training_step = []
+
+    for k, v in training_metrics.items():
+        training_steps.append(float(k))
+        metrics_per_training_step.append(v)
+
+    metrics_per_training_step[0].update(
+      {'training/sps': 0.0, 
+      'training/walltime': 0.0, 
+      'training/entropy_loss': 0.0, 
+      'training/policy_loss': 0.0, 
+      'training/total_loss': 0.0, 
+      'training/v_loss': 0.0
+      }
+    )
+
+    return (training_steps, metrics_per_training_step)
+
+
 def testrun(
     modelpath, 
     seed=1,
     num_eval_envs=128,
-    deterministic_eval=False
+    deterministic_eval=False,
+    episode_length=None,
     ):
   
   key = jax.random.PRNGKey(seed=seed)
-  
+
   training_metrics = load(f"{modelpath}/training_metrics")
   model_variant_name = training_metrics['model_variant_name']
 
   training_params = load(f"{modelpath}/training_params")
   env_params = load(f"{modelpath}/env_params")
-  training_metrics.pop('model_variant_name')
 
   env = load(f"{modelpath}/env")
   action_repeat = env.action_repeat
-  episode_length = env.episode_length
-  env = VmapWrapper(EpisodeWrapper(env, episode_length, action_repeat))
+  episode_length = env.episode_length if episode_length is None else episode_length
+  env = AutoResetWrapper(VmapWrapper(EpisodeWrapper(env, episode_length, action_repeat)))
   
   network = load(f"{modelpath}/network")
   params = load(f"{modelpath}/model_params")
@@ -83,39 +111,22 @@ def testrun(
       f'eval/episode_{name}': value for name, value 
       in state_extras['eval_metrics'].episode_metrics.items()
   }
-
+  '''
   episode_metrics.update(
-      proportion_goal_reached=jp.abs(1-state_extras['eval_metrics'].active_episodes))
+      proportion_goal_reached=jp.abs(1-state_extras['eval_metrics'].active_episodes))'''
 
-  ordered_goal_difficulty = jp.argsort(episode_metrics['eval/episode_goal_distance_world_frame'][:, -1], axis=0)
+  #ordered_goal_difficulty = jp.argsort(episode_metrics['eval/episode_goal_distance_world_frame'][:, -1], axis=0)
 
-  rollouts_to_save = jp.linspace(0, num_eval_envs - 1, 10, dtype=int)
+  #rollouts_to_save = jp.linspace(0, num_eval_envs - 1, 10, dtype=int)
 
-  goals = jax.tree_map(lambda x: x[ordered_goal_difficulty[rollouts_to_save], -1, ...], 
-                      state_extras['goal'])
+  #goals = jax.tree_map(lambda x: x[ordered_goal_difficulty[rollouts_to_save], -1, ...], 
+  #                    state_extras['goal'])
 
-  rollouts = jax.tree_map(lambda x: x[ordered_goal_difficulty[rollouts_to_save], ...], 
-                      data.nstate)
+  #rollouts = jax.tree_map(lambda x: x[ordered_goal_difficulty[rollouts_to_save], ...], 
+  #                    data.nstate)
   
   episode_metrics = jax.tree_map(lambda x: aggregate(x), episode_metrics)
   episode_steps = state_extras['steps'][0,:]
-
-  training_steps = []
-  metrics_per_training_step = []
-
-  for k, v in training_metrics.items():
-      training_steps.append(float(k))
-      metrics_per_training_step.append(v)
-
-  metrics_per_training_step[0].update(
-    {'training/sps': 0.0, 
-     'training/walltime': 0.0, 
-     'training/entropy_loss': 0.0, 
-     'training/policy_loss': 0.0, 
-     'training/total_loss': 0.0, 
-     'training/v_loss': 0.0
-     }
-  )
 
   experimental_data = {
     'model_variant_name': model_variant_name,
@@ -123,15 +134,15 @@ def testrun(
     'training_params': training_params,
     'env_params': env_params,
     'final_metrics': metrics,
-    'test_rollouts': rollouts,
-    'test_goals': goals,
     'testing_data': (episode_steps, episode_metrics),
-    'training_data': (training_steps, metrics_per_training_step)
+    'training_data': gettraining_metrics(modelpath),
+    'data': data
   }
 
   return experimental_data
 
-def plot(experimental_data, metric, timeframe: Literal['training', 'testing'], error: Literal[None, 'std', 'stderr'] = None, label = None):
+
+def plot(experimental_data, metric, timeframe: Literal['training', 'testing'], error: Literal[None, 'std', 'stderr'] = None, label = None, err_label = None):
   
   if label is None:
     label = experimental_data['model_variant_name']
@@ -164,7 +175,7 @@ def plot(experimental_data, metric, timeframe: Literal['training', 'testing'], e
   plt.xlim(0, max_steps)
   plt.plot(steps, values, linewidth=0.5, label=label)
   if error is not None:
-    plt.fill_between(steps, lower_error , upper_error , alpha=0.3, label='Stderr Shading') 
+    plt.fill_between(steps, lower_error , upper_error , alpha=0.3, label=err_label) 
 
 def display(experimental_data, rollout_id, append_goal = True):
 
@@ -291,15 +302,13 @@ def main(argv):
   logging.set_verbosity(logging.INFO)
   jp.set_printoptions(precision=4)
 
-  path = "hct/training/hyperparam_sweeps/low_level_env_mlp/runs/final_low_level"
-  for i in range(20):
-    output = testrun(path, seed = i)
-    logging.info(output['final_metrics'])
-  path = "hct/training/hyperparam_sweeps/low_level_env_mlp/runs/120"
-  for i in range(20):
-    output = testrun(path, seed = i)
-    logging.info(output['final_metrics'])
-  return output
+  modelpath = "hct/training/hyperparam_sweeps/low_level_env_mlp_v2/runs"
+  savepath = "hct/training/hyperparam_sweeps/low_level_env_mlp_v2/experimental_data"
+
+  for i in range(8):
+    logging.info(f"{i+1}/8")
+    output = testrun(f"{modelpath}/{i}", seed=8, episode_length=500)  
+    save(f"{savepath}/{i}", output)
 
 if __name__== '__main__':
   app.run(main)

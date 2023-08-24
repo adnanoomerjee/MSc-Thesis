@@ -7,6 +7,7 @@ from brax.base import Motion, State, System, Transform
 from brax.scan import link_types
 from brax.kinematics import inverse, world_to_joint
 from brax.envs import Env
+import brax
 
 import jax
 import jax.numpy as jp
@@ -32,10 +33,11 @@ def normalize_to_range(
         max_value, 
         a=-1, 
         b=1
-    ):
-    def func(value):
-        return a + ((value - min_value) * (b - a)) / (max_value - min_value)
-    return jax.lax.cond(max_value == min_value, func, zero, value)
+    ):        
+    nonzero = jp.where(jp.abs(max_value - min_value) > 1e-4, x=1.0, y=0.0)
+    max_value = max_value + (1 - nonzero)
+
+    return nonzero * (a + ((value - min_value) * (b - a))) / (max_value - min_value)
 
 def unnormalize_to_range(
         normalized_value, 
@@ -97,43 +99,6 @@ def q_spherical_to_quaternion(g: jp.ndarray, state: State, sys: System):
     return link_types(sys, scanfunc, 'd', 'q', g)
 
 
-def world_to_egocentric(t: Transform) -> Transform:
-    """Converts a transform in world frame to transform in egocentric frame.
-
-    Args:
-        t: transform in world frame
-
-    Returns:
-        t': transform in egocentric frame
-    """
-    r = t.take(0)
-    return t.vmap(in_axes=(0,None)).to_local(r)
-
-#@world_to_egocentric.register(Motion)
-def world_to_egocentric(t: Motion) -> Motion:
-    """Converts a transform in world frame to transform in egocentric frame.
-
-    Args:
-        t: transform in world frame
-
-    Returns:
-        t': transform in egocentric frame
-    """
-    r = t.take(0)
-    return t.vmap(in_axes=(0,None)).__sub__(r)
-
-def egocentric_to_world(t: Transform) -> Transform:
-    """Converts a transform in egocentric frame to transform in world frame.
-
-    Args:
-        t: transform in egocentric frame
-
-    Returns:
-        t': transform in world frame
-    """
-    r = t.take(0)
-    return r.vmap(in_axes=(None,0)).do(t)
-
 def world_to_relative(state, env):
     
     link_parents = jp.array(env.link_parents)
@@ -154,10 +119,51 @@ def world_to_relative(state, env):
 
     return x_rel, xd_rel
 
+def relative_to_world(state, env):
+    
+    link_parents = jp.array(env.link_parents)
+    link_parents = jp.where(link_parents == -1, 0, link_parents)
+
+    x = state.x
+    xd = state.xd
+    root_x = x.take(0)
+    root_xd = xd.take(0)
+
+    x_link_parents = x.take(link_parents)
+    xd_link_parents = xd.take(link_parents)
+
+    x = x.vmap(in_axes=(0,0)).do(x_link_parents).index_set(0, root_x)
+    y = x.vmap(in_axes=(0, None)).do(root_x)
+    x = x.index_set(jp.array([2,4,6,8]), jax.tree_map(lambda x: x[jp.array([2,4,6,8])], y))
+    
+    quat = x_link_parents.rot
+    xd = jax.tree_map(lambda x: jax.vmap(rotate)(x, quat), xd.__add__(xd_link_parents)).index_set(0, root_xd)
+    yd = jax.tree_map(lambda x: jax.vmap(rotate)(x, quat), xd.__add__(root_xd))
+    xd = xd.index_set(jp.array([2,4,6,8]), jax.tree_map(lambda x: x[jp.array([2,4,6,8])], yd))
+
+    return x, xd
+
+
+def world_to_egocentric(state):
+
+    x = state.x
+    xd = state.xd
+    root_x = x.take(0)
+    root_xd = xd.take(0)
+
+    x_rel = x.vmap(in_axes=(0, None)).to_local(root_x).index_set(0, root_x)
+    xd_rel = jax.tree_map(lambda x: jax.vmap(inv_rotate, in_axes=(0, None))(x, root_x.rot), xd.__sub__(root_xd)).index_set(0, root_xd)
+
+    return State(state.q, state. qd, x_rel, xd_rel, None)
+
+    
+def egocentric_to_world(state):
+    return None
 
 def dist_quat(quat1, quat2):
     """Cosine angle distance between quaternions"""
-    return jp.expand_dims(jp.abs(jp.dot(quat1, quat2) - 1), -1)
+    cosine = jp.minimum(jp.dot(quat1, quat2), jp.dot(quat1, -quat2))
+    return jp.expand_dims(jp.abs(cosine - 1), -1)
 
 def random_ordered_subset(rng, idx: jp.ndarray):
     rng, rng1, rng2 = jax.random.split(rng, 3)
@@ -200,24 +206,68 @@ def timeit(fn: Callable, *args):
     end_time = time.time()
     return fn_output, end_time - start_time
 
-def goal_to_state(goal: Goal, sys: System):
-    x = goal.x_world
-    xd = goal.xd_world
-    j, jd, _, _ = world_to_joint(sys, x, xd)
-    q, qd = inverse(sys, j, jd)
-    return State(q, qd, x, xd, None)
+def goal_to_state(goal: Goal, sys: System, state):
+    goal = brax.positional.base.State(
+        q=goal.q,
+        qd=goal.qd,
+        x=goal.x,
+        xd=goal.xd,
+        contact=None,
+        x_i=state.x_i,
+        xd_i=state.xd_i, 
+        j=state.j, 
+        jd=state.jd,
+        a_p=state.a_p, 
+        a_c=state.a_c, 
+        mass=state.mass,
+    )
+    return goal
 
-def dist(env: Env, x1, xd1, x2, xd2, root_dist=False):
-    dpos = x1.pos - x2.pos
-    drot = jax.vmap(dist_quat)(x1.rot, x2.rot) * env.rot_dist
+
+def dist(env: Env, x1, xd1, x2, xd2, rot_dist=False, root_dist=False, importance = None):
+
+    if importance is None:
+        importance = 1
+    
+    dpos = 2*(x1.pos - x2.pos)#/env.minmax['pos']
+    drot = jp.zeros((env.num_nodes, 1)).at[0,0].set(1) * jax.vmap(dist_quat)(x1.rot, x2.rot)#/(env.minmax['rot'])
     dx = jp.concatenate([dpos, drot], axis=-1) * env.goal_x_mask
-    dxd = concatenate_attrs(xd1.__sub__(xd2) * env.goal_xd_mask)
-    s_minus_g = jp.concatenate([dx, dxd], axis=-1)
+
+    dvel = jp.expand_dims(safe_norm(xd1.vel, axis=-1) - safe_norm(xd2.vel, axis=-1), axis=-1)#/env.minmax['vel']
+    dang = 0 * (xd1.ang - xd2.ang)#/env.minmax['ang']
+    dxd = jp.concatenate([dvel, dang], axis=-1) * env.goal_xd_mask
+
+    s_minus_g_sq = jp.square(jp.concatenate([dx, dxd], axis=-1) * importance) 
+    
     if env.obs_mask is not None:
-      s_minus_g = s_minus_g * env.obs_mask
-    root_dist = safe_norm(s_minus_g[0]) if root_dist else None
-    dist = safe_norm(s_minus_g) 
+        s_minus_g_sq = s_minus_g_sq * env.obs_mask
+
+    s_minus_g_sq = jp.where(jp.isnan(s_minus_g_sq), x=0.0, y=s_minus_g_sq)
+    root_dist = jp.sqrt(jp.sum(s_minus_g_sq[0])) if root_dist else None
+    dist = jp.sqrt(jp.sum(s_minus_g_sq)) #jp.clip(jp.sqrt(jp.sum(s_minus_g_sq)), 0, jp.sqrt(jp.sum(2 * importance))) 
+
     return dist, root_dist
+
+
+def max_sq_dist_nodes(env: Env, x1, xd1, x2, xd2, root_dist=False):
+
+    dpos = jp.square(x1.pos - x2.pos)
+    drot = jp.square(jax.vmap(dist_quat)(x1.rot, x2.rot))
+    dx = jp.concatenate([dpos, drot], axis=-1) * env.goal_x_mask
+
+    dvel = jp.square(xd1.vel - xd2.vel) 
+    dang = jp.square(xd1.ang - xd2.ang) 
+    dxd = jp.concatenate([dvel, dang], axis=-1) * env.goal_xd_mask
+
+    s_minus_g_sq = jp.concatenate([dx, dxd], axis=-1)
+    
+    if env.obs_mask is not None:
+        s_minus_g_sq = s_minus_g_sq * env.obs_mask
+    
+    sq_dists = jp.clip(jp.sum(s_minus_g_sq, axis=1, keepdims=True), 0, jp.sqrt(4 * 9))
+
+    return sq_dists
+
 
 def slerp(q1, q2, t):
     """Perform SLERP between two quaternions q1, q2 with interpolant t."""

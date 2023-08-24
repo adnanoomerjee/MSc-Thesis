@@ -29,6 +29,7 @@ from flax import linen
 import jax
 import jax.numpy as jp
 
+#jax.config.update("jax_debug_nans", True)
 
 class MLP(linen.Module):
   """MLP module."""
@@ -41,25 +42,29 @@ class MLP(linen.Module):
   def __call__(self, 
                data: jp.ndarray,
                action_mask: jp.ndarray = None):
+    activate = linen.swish
     deterministic = not self.has_rng('dropout')
-    hidden = data
-    for i, hidden_size in enumerate(self.layer_sizes):
-      hidden = linen.Dense(
-          hidden_size,
-          name=f'hidden_{i}',
-          kernel_init=jax.nn.initializers.lecun_uniform(),
-          use_bias=self.bias)(
-              hidden)
-      if i != len(self.layer_sizes) - 1 or self.activate_final:
-        hidden = linen.swish(hidden)
-      if i != len(self.layer_sizes) - 1:
-        hidden = linen.Dropout(
-            rate=self.dropout_rate,
-            deterministic=deterministic)(hidden)
-    hidden = jp.squeeze(hidden, axis=-1) if hidden.shape[-1] == 1 else hidden
+    x = data
+    x = linen.Dense(self.layer_sizes[0], 
+                    name=f'hidden_0', 
+                    kernel_init=jax.nn.initializers.lecun_uniform(), 
+                    use_bias=self.bias)(x)
+    x = activate(x)  
+    for i, hidden_size in enumerate(self.layer_sizes[1:]):
+      x = jp.concatenate([x, data], axis=-1)
+      x = linen.Dense(hidden_size, 
+                      name=f'hidden_{i+1}', 
+                      kernel_init=jax.nn.initializers.lecun_uniform(), 
+                      use_bias=self.bias)(x)
+      if i+1 != len(self.layer_sizes) - 1:
+        x = activate(x)
+        x = linen.Dropout(rate=self.dropout_rate, deterministic=deterministic)(x)
+      elif self.activate_final:
+        x = activate(x)
+    x = jp.squeeze(x, axis=-1) if x.shape[-1] == 1 else x
     if action_mask is not None and self.layer_sizes[-1] > 1:
-      hidden = hidden * jp.repeat(action_mask, 2, axis=-1) 
-    return hidden, None
+      x = x * jp.tile(action_mask, 2) 
+    return x, None
 
 
 class Transformer(linen.Module):
@@ -108,7 +113,7 @@ class Transformer(linen.Module):
         kernel_init=jax.nn.initializers.uniform(scale=0.1),
         bias_init=linen.initializers.zeros)(output)
       if action_mask is not None:
-        output = output * jp.repeat(action_mask, 2, axis=-1) 
+        output = output * jp.tile(action_mask, 2) 
       output = jp.delete(output, non_actuator_nodes, axis=-2)
     else:
       output = linen.DenseGeneral( # (B, 1) 

@@ -32,7 +32,6 @@ import jax.numpy as jp
 State = Union[envs.State, envs_v1.State]
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 
-
 def actor_step(
     env: Env,
     env_state: State,
@@ -46,7 +45,7 @@ def actor_step(
   nstate = env.step(env_state, actions)
   state_extras = {x: nstate.info[x] for x in extra_fields}
   if save_state:
-    nstate_var = nstate.pipeline_state
+    nstate_var = nstate
   else:
     nstate_var = None
   return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
@@ -132,9 +131,28 @@ class Evaluator:
           unroll_length=episode_length // action_repeat,
           extra_fields=extra_fields,
           save_state=save_state)
-
+    
     self._generate_eval_unroll = jax.jit(generate_eval_unroll)
     self._steps_per_unroll = episode_length * num_eval_envs
+    
+  def mean_std_stderr(self, values, weights=None):
+    """
+    Compute the weighted standard deviation.
+
+    :param values: jnp.array of data values
+    :param weights: jnp.array of weights for the values
+    :return: weighted standard deviation
+    """
+    weighted_mean = jp.average(values, weights=weights)
+    std = jp.sqrt(jp.average((values - weighted_mean) ** 2, weights=weights))
+    stderr = std/jp.sum(weights) if weights is not None else std/jp.sum(self._num_eval_envs)
+    out = {
+      'mean': weighted_mean, 
+      'std': std, 
+      'stderr' :stderr
+    }
+    return jax.tree_map(lambda a: jp.where(jp.isnan(a).item(), x=0.0, y=a), out)
+
 
   def run_evaluation(self,
                      policy_params: PolicyParams,
@@ -148,18 +166,19 @@ class Evaluator:
     eval_metrics = eval_state.info['eval_metrics']
     eval_metrics.active_episodes.block_until_ready()
     epoch_eval_time = time.time() - t
+
+    '''
+    if 'episode_weights' in eval_metrics.episode_metrics.keys():
+      mean_weights = eval_metrics.episode_metrics['episode_weights']
+    else:
+      mean_weights = None'''
+
     metrics = {
-        f'eval/episode_{name}': {
-           'mean': jp.mean(value).item(), 
-           'std': jp.std(value).item(), 
-           'stderr' :jp.std(value).item()/jp.sqrt(self._num_eval_envs)} if aggregate_episodes else value
+        f'eval/episode_{name}': self.mean_std_stderr(value) if aggregate_episodes and ('cumulative' not in name and 'weight' not in name) else jp.sum(value).item() if aggregate_episodes else value 
         for name, value in eval_metrics.episode_metrics.items()
     }
-    metrics['eval/avg_episode_length'] = {
-        'mean': jp.mean(eval_metrics.episode_steps).item(), 
-         'std': jp.std(eval_metrics.episode_steps).item(),
-         'stderr': jp.std(eval_metrics.episode_steps).item()/jp.sqrt(self._num_eval_envs)
-         }
+
+    metrics['eval/avg_episode_length'] = self.mean_std_stderr(eval_metrics.episode_steps, None)
     metrics['eval/epoch_eval_time'] = epoch_eval_time
     metrics['eval/sps'] = self._steps_per_unroll / epoch_eval_time
     self._eval_walltime = self._eval_walltime + epoch_eval_time

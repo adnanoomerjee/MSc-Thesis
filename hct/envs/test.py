@@ -1,12 +1,16 @@
 import jax
 from hct.envs.tools import timeit
-from hct.io.html import render
+from hct.io.html import render, save
 from hct.io.model import load
-from hct.envs.wrappers.training import VmapWrapper
+from hct.envs.wrappers.training import VmapWrapper, EpisodeWrapper, AutoResetWrapper
 
+from brax.io import mjcf
 from brax.envs import Env
 import functools
 import brax
+import jax.numpy as jp
+
+from etils import epath
 
 def test(env: Env, iterations: int = 1, jit = True):
     
@@ -61,11 +65,14 @@ def test(env: Env, iterations: int = 1, jit = True):
 
     return jit_reset, jit_step, reset_states, step_states, reset_times
 
-def rollout(modelpath, seed = 1, test = False, batch_size = 64, environment = None):
+def rollout(modelpath, seed = 1, test = False, batch_size = 64, environment = None, goal = True, goal_abstraction = 0, episode_length = None):
   
     env = load(f"{modelpath}/env")
     if environment is not None:
        env = environment
+    env = AutoResetWrapper(env)
+
+    sys = env.sys
 
     network = load(f"{modelpath}/network")
     params = load(f"{modelpath}/model_params")
@@ -84,27 +91,47 @@ def rollout(modelpath, seed = 1, test = False, batch_size = 64, environment = No
     pipeline_states = []
     actions = []
     policy_extras = []
+    goals = []
 
     rng = jax.random.PRNGKey(seed)
 
     jit_reset = jax.jit(env.reset)
     jit_step = jax.jit(env.step)
-    jit_policy = jax.jit(policy)
+    jit_policy =  jax.jit(policy)
 
     state = jit_reset(rng)
 
-    for i in range(int(env.episode_length)):
+    episode_length = env.episode_length if episode_length is None else episode_length
 
-      states.append(state)
-      pipeline_states.append(state.pipeline_state)
+    
+    for i in range(int(episode_length//env.action_repeat)):
+
       rng, rng1 = jax.random.split(rng)
       action, extras = jit_policy(state.obs, rng1)
-      actions.append(action)
-      policy_extras.append(extras)
-      state = jit_step(state, action)
+
+      for j in range(env.action_repeat):
+        pipeline_states.append(state.pipeline_state)
+        states.append(state)
+        actions.append(action)
+        policy_extras.append(extras)
+        state = jit_step(state, action)
+
+    if goal:
         
+        abstraction = f"ant_goal_abstract_{goal_abstraction}" if goal_abstraction != 0 else 'ant_goal'
+
+        abstract_state = env.abstract_state if goal_abstraction != 0 else lambda x: x
+
+        pipeline_states = [(state.pipeline_state).replace(x=jax.tree_map(lambda x, y: jp.concatenate([x, y]), abstract_state(state.pipeline_state).x, state.info['goal'].x))
+              for state in states]
+
+        path = epath.resource_path('hct') / f'envs/assets/{abstraction}.xml'
+        sys = mjcf.load(path)
+
+    html_save = save(epath.resource_path('hct') / f'envs/assets/htmls/test.html', sys.replace(dt=env.dt), pipeline_states)
+
     return {
-       'rollout': render(env.sys.replace(dt=env.dt), pipeline_states), 
+       'rollout': render(sys.replace(dt=env.dt), pipeline_states), 
        'states': states, 
        'actions': actions, 
        'policy_extras': policy_extras, 
@@ -132,7 +159,7 @@ def test_rollout(env, seed = 1):
       action = policy(rng1)
       actions.append(action)
       state = jit_step(state, action)
-        
+
     return {
        'rollout': render(env.sys.replace(dt=env.dt), pipeline_states), 
        'states': states, 

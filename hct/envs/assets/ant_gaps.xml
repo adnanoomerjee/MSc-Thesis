@@ -41,18 +41,26 @@
     <light cutoff="100" diffuse="1 1 1" dir="-0 0 -1.3" directional="true" exponent="1" pos="0 0 1.3" specular=".1 .1 .1"/>
 
     <!-- environment -->
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 4 0.1" pos="0 0 -0.1" type="box"/>
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 2 0.1" pos="0 7 -0.1" type="box"/>
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 3.5 0.1" pos="0 13 -0.1" type="box"/> <!-- y size = 3.5*2 = 7, gap = 0.5 -->
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.5 0.1" pos="0 19 -0.1" type="box"/> <!-- y size = 1.5*2 = 3, gap = 1.5 -->
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 2.5 0.1" pos="0 24.8 -0.1" type="box"/> <!-- y size = 2.5*2 = 5, gap = 1 -->
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 3 0.1" pos="0 31 -0.1" type="box"/>   <!-- y size = 3*2 = 6, gap = 1 -->
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 2.1 0.1" pos="0 38 -0.1" type="box"/>
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 2.5 0.1" pos="0 44.5 -0.1" type="box"/>
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.8 0.1" pos="0 49.5 -0.1" type="box"/>
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 2.3 0.1" pos="0 55 -0.1" type="box"/>
-    <geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 3.7 0.1" pos="0 62 -0.1" type="box"/>
-
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 2.0 0.1" pos="0 0 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.9 0.1" pos="0 3.38 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.95 0.1" pos="0 5.69 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.72 0.1" pos="0 7.8 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.0 0.1" pos="0 10.2 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.04 0.1" pos="0 12.72 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.82 0.1" pos="0 15.26 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.69 0.1" pos="0 17.23 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.79 0.1" pos="0 19.19 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.03 0.1" pos="0 21.79 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.05 0.1" pos="0 24.63 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.7 0.1" pos="0 26.96 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.02 0.1" pos="0 29.46 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.65 0.1" pos="0 31.91 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 1.02 0.1" pos="0 34.3 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.96 0.1" pos="0 36.88 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.66 0.1" pos="0 39.22 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.95 0.1" pos="0 41.51 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.82 0.1" pos="0 43.88 -0.1" type="box"/>
+	 	<geom conaffinity="1" condim="3" rgba="0.8 0.2 0.2 1" size="5 0.96 0.1" pos="0 46.38 -0.1" type="box"/>
     <!-- ant -->
     <body name="torso" pos="0 0 0.75">
       <camera name="track" mode="trackcom" pos="0 -3 0.3" xyaxes="1 0 0 0 0 1"/>

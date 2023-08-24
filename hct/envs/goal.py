@@ -23,8 +23,11 @@ class Goal(base.Base):
   qd: jp.ndarray
   x: base.Transform
   xd: base.Motion
-  x_rel: base.Transform
-  xd_rel: base.Motion
+  x_rel: base.Transform = None
+  xd_rel: base.Motion = None
+  importance: jp.ndarray = None
+  ja: jp.ndarray = None
+  jv: jp.ndarray = None
   contact: Optional[jp.ndarray] = None
 
 

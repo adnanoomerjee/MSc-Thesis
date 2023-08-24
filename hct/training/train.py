@@ -37,6 +37,7 @@ from hct.training import network_factory as ppo_networks
 from hct.envs.wrappers.training import wrap as wrap_for_training
 from hct.training import acting
 from hct.training import losses as ppo_losses
+from hct.io.model import save
 
 import flax
 import jax
@@ -81,6 +82,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           entropy_cost: float = 1e-4,
           discounting: float = 0.9, # γ
           seed: int = 0,
+          episode_length = None,
           unroll_length: int = 10, # Number of timesteps the agent collects before it updates its policy
           batch_size: int = 32, # Number of experiences (state, action, reward, next state) sampled from the environment per training batch.
           num_minibatches: int = 16, # Number of different subsets that the batch of experiences is divided into. PPO typically uses minibatches to compute an estimate of the expected return and update the policy.
@@ -97,9 +99,9 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
           normalize_advantage: bool = True,
           eval_env: Optional[envs.Env] = None,
+          save_eval_state = False,
           policy_params_fn: Callable[..., None] = lambda *args: None):
   
-
   """PPO training."""
   assert batch_size * num_minibatches % num_envs == 0
   xt = time.time()
@@ -122,8 +124,11 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   device_count = local_devices_to_use * process_count
 
   env = environment
-  episode_length = env.episode_length
+  episode_length = env.episode_length if episode_length is None else episode_length
   action_repeat = env.action_repeat
+
+  if hasattr(env, 'horizon'):
+    discounting = 1 - 1/env.horizon
 
   # Number of environment steps executed for every training step.
   env_step_per_training_step = (
@@ -183,12 +188,11 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
   make_inference_fn = ppo_networks.make_inference_fn
   make_policy = ppo_networks.make_inference_fn(ppo_network)
 
-
   #Define optimizer
-  optimizer = optax.chain(
-    optax.clip(gradient_clipping),
-    optax.adam(learning_rate=learning_rate)
-    )
+  optimizer = optax.adam(learning_rate=learning_rate)
+  if int(gradient_clipping) != 0:
+    optimizer = optax.chain(
+      optax.clip(gradient_clipping), optimizer)
 
 
   #Define loss function
@@ -268,7 +272,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
           unroll_length,
           extra_fields=('truncation',))
       return (next_state, next_key), data
-
+    
     (state, _), data = jax.lax.scan(
         f, (state, key_generate_unroll), (),
         length=batch_size * num_minibatches // num_envs)
@@ -360,6 +364,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
                         deterministic=deterministic_eval),
       num_eval_envs=num_eval_envs,
       episode_length=episode_length,
+      save_state=save_eval_state,
       action_repeat=action_repeat,
       key=eval_key)
 
@@ -371,6 +376,7 @@ def train(environment: Union[envs_v1.Env, envs.Env], # Training enviroment
             (training_state.normalizer_params, training_state.params.policy)),
         training_metrics={})
     logging.info(metrics)
+    
     progress_fn(0, metrics)
 
   training_walltime = 0

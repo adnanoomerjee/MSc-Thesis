@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for i in $(seq 15 17)
+for i in $(seq 0 3)
 do
    sbatch slurm_script.sh $i
 done
