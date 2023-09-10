@@ -135,7 +135,7 @@ def testrun(
     'env_params': env_params,
     'final_metrics': metrics,
     'testing_data': (episode_steps, episode_metrics),
-    'training_data': gettraining_metrics(modelpath),
+    'training_data': get_training_metrics(modelpath),
     'data': data
   }
 
@@ -297,18 +297,34 @@ def testing_plots(modelpath, metric, error: Literal[None, 'std', 'stderr'] = Non
     plt.fill_between(x, y_lower, y_upper, alpha=0.3, label='Stderr Shading') '''
 
 
+'''def main(argv):
+  logging.get_absl_handler().use_absl_log_file('log', "hct")
+  logging.set_verbosity(logging.INFO)
+  jp.set_printoptions(precision=4)
+
+  hyperpath =  "hct/training/hyperparam_sweeps_v2"
+  envs = ['maze', 'hurdles', 'gaps']
+
+  r = 48
+  for env in envs:
+    for i in [16, 32]:
+      logging.info(f"{i}/{r-1}")
+      output = testrun(f"{hyperpath}/{env}/hma2/runs/{i}", seed=8)  
+      save(f"{hyperpath}/{env}/hma2/runs/{i}/data", output)'''
+
 def main(argv):
   logging.get_absl_handler().use_absl_log_file('log', "hct")
   logging.set_verbosity(logging.INFO)
   jp.set_printoptions(precision=4)
 
-  modelpath = "hct/training/hyperparam_sweeps/low_level_env_mlp_v2/runs"
-  savepath = "hct/training/hyperparam_sweeps/low_level_env_mlp_v2/experimental_data"
+  hyperpath =  "hct/training/hyperparam_sweeps_v2"
+  envs = ['maze', 'hurdles', 'gaps']
 
-  for i in range(8):
-    logging.info(f"{i+1}/8")
-    output = testrun(f"{modelpath}/{i}", seed=8, episode_length=500)  
-    save(f"{savepath}/{i}", output)
+  r = 48
+  for i in [4]:
+    logging.info(f"{i}/{r-1}")
+    output = testrun(f"{hyperpath}/hma/mid_level/runs/{i}", seed=8)  
+    save(f"{hyperpath}/hma/mid_level/runs/{i}/data", output)
 
 if __name__== '__main__':
   app.run(main)

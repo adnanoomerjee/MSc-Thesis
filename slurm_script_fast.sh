@@ -4,9 +4,10 @@
 #SBATCH --nodes=1 
 #SBATCH --partition=fast
 #SBATCH --ntasks-per-node=1
+#SBATCH --mem=100G
 #SBATCH --gres=gpu:2
 #SBATCH --exclusive
 
 source /nfs/nhome/live/aoomerjee/mambaforge/bin/activate
 conda activate msc-thesis-hpc
-python3 /nfs/nhome/live/aoomerjee/MSc-Thesis/debug.py
+python3 /nfs/nhome/live/aoomerjee/MSc-Thesis/testing.py

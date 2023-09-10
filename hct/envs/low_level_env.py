@@ -313,7 +313,7 @@ class LowLevelEnv(PipelineEnv):
     if self.distance_reward == 'absolute':
       reward = -goal_dist
     else:
-      reward = (prev_goal_dist - goal_dist)/self.dt - 0.1 * jp.sum(jp.square(action))
+      reward = (prev_goal_dist - goal_dist)/self.dt # - 0.1 * jp.sum(jp.square(action))
 
     reward = reward * (1 - done) * (1 - resample_goal) + is_unhealthy * self.unhealthy_cost 
 
@@ -591,7 +591,7 @@ class LowLevelEnv(PipelineEnv):
 
     if self.goal_importance:
       if self.goal_importance_framework == 'continuous':
-        importance = jax.random.uniform(rng4, shape=(self.num_nodes, 1), minval=-1, maxval=1)# * choice + jp.zeros((9,1)).at[0,0].set(1.) * (1-choice) #(jax.nn.sigmoid(jax.random.uniform(rng4, shape=(self.num_nodes, 1), minval = -40, maxval = 10))) #* choice + jp.zeros((9,1)).at[0,0].set(1.) * (1-choice)
+        importance = jax.random.uniform(rng4, shape=(self.num_nodes, 1), minval=0, maxval=1)# * choice + jp.zeros((9,1)).at[0,0].set(1.) * (1-choice) #(jax.nn.sigmoid(jax.random.uniform(rng4, shape=(self.num_nodes, 1), minval = -40, maxval = 10))) #* choice + jp.zeros((9,1)).at[0,0].set(1.) * (1-choice)
       else:
         importance = jax.random.choice(rng4, shape=(self.num_nodes, 1), a=jp.array([0.0, 1.0]))# * choice + jp.zeros((9,1)).at[0,0].set(1.) * (1-choice) #(jax.nn.sigmoid(jax.random.uniform(rng4, shape=(self.num_nodes, 1), minval = -40, maxval = 10))) #* choice + jp.zeros((9,1)).at[0,0].set(1.) * (1-choice)
     else:

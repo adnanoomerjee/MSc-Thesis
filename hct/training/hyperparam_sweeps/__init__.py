@@ -82,14 +82,14 @@ HMA_PRETRAIN_TRAINING_PARAMETERS = {
 }
 
 action_repeats = [1, 5, 10, 20] 
-action_repeats2 = [1, 2, 3] 
+action_repeats2 = [1, 5] 
 
 low_level_modelpath = "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/hma/low_level/runs"
 low_level_model_ids = [i for i in range(8)]
 low_level_models = [f"{low_level_modelpath}/{i}" for i in low_level_model_ids]
 
 mid_level_modelpath = "/nfs/nhome/live/aoomerjee/MSc-Thesis/hct/training/hyperparam_sweeps/hma/mid_level/runs"
-mid_level_model_ids = [33]
+mid_level_model_ids = [i for i in range(12)]
 mid_level_models = [f"{mid_level_modelpath}/{i}" for i in mid_level_model_ids]
 
 architecture_configs = [VLARGE_MLP_CONFIGS]
@@ -112,7 +112,7 @@ HMA2_PARAMS = {
 HMA3_PARAMS = {
     'mid_level_modelpath': mid_level_models,
     'reward_type': ['dense', 'sparse'],
-    'task_information': [True, False],
+    'task_information': [True],
     'reward_movement': ['velocity'],
     'action_repeat': action_repeats2,
     'architecture_configs': architecture_configs

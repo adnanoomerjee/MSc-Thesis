@@ -229,7 +229,7 @@ def dist(env: Env, x1, xd1, x2, xd2, rot_dist=False, root_dist=False, importance
     if importance is None:
         importance = 1
     
-    dpos = 2*(x1.pos - x2.pos)#/env.minmax['pos']
+    dpos = 2*(x1.pos - x2.pos).at[0].set(0)#/env.minmax['pos']
     drot = jp.zeros((env.num_nodes, 1)).at[0,0].set(1) * jax.vmap(dist_quat)(x1.rot, x2.rot)#/(env.minmax['rot'])
     dx = jp.concatenate([dpos, drot], axis=-1) * env.goal_x_mask
 
@@ -247,6 +247,30 @@ def dist(env: Env, x1, xd1, x2, xd2, rot_dist=False, root_dist=False, importance
     dist = jp.sqrt(jp.sum(s_minus_g_sq)) #jp.clip(jp.sqrt(jp.sum(s_minus_g_sq)), 0, jp.sqrt(jp.sum(2 * importance))) 
 
     return dist, root_dist
+
+def node_dist(env: Env, x1, xd1, x2, xd2, rot_dist=False, root_dist=False, importance = None):
+
+    if importance is None:
+        importance = 1
+    
+    dpos = 2*(x1.pos - x2.pos)#/env.minmax['pos']
+    drot = jp.zeros((env.num_nodes, 1)).at[0,0].set(1) * jax.vmap(dist_quat)(x1.rot, x2.rot)#/(env.minmax['rot'])
+    dx = jp.concatenate([dpos, drot], axis=-1) * env.goal_x_mask
+
+    dvel = jp.expand_dims(safe_norm(xd1.vel, axis=-1) - safe_norm(xd2.vel, axis=-1), axis=-1)#/env.minmax['vel']
+    dang = 0 * (xd1.ang - xd2.ang)#/env.minmax['ang']
+    dxd = jp.concatenate([dvel, dang], axis=-1) * env.goal_xd_mask
+
+    s_minus_g_sq = jp.square(jp.concatenate([dx, dxd], axis=-1) * importance) 
+    
+    if env.obs_mask is not None:
+        s_minus_g_sq = s_minus_g_sq * env.obs_mask
+
+    s_minus_g_sq = jp.where(jp.isnan(s_minus_g_sq), x=0.0, y=s_minus_g_sq)
+
+    dist = jp.sqrt(jp.sum(s_minus_g_sq, axis=1)) #jp.clip(jp.sqrt(jp.sum(s_minus_g_sq)), 0, jp.sqrt(jp.sum(2 * importance))) 
+
+    return dist
 
 
 def max_sq_dist_nodes(env: Env, x1, xd1, x2, xd2, root_dist=False):
