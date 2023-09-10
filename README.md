@@ -1,2 +1,2 @@
 # MSc-Thesis
-Morphology-Task Generalisation Using Hierarchical Control
+Hierarchical Control with Morphological Abstraction for Sparse Reward Tasks
